@@ -6,6 +6,7 @@ import spinal.core.Component
 import spinal.core.internals._
 import spinal.core.BlackBox
 import spinal.core.pdg_analysis.VertexKind._
+import spinal.core.IODirection
 
 /**
   * This file contains the methods for constructing a Program Dependency Graph (PDG) for a circuit.
@@ -245,7 +246,7 @@ object PdgBuilder {
         val (file, line, col) = getSourceLocation(p)
         // Todo: SPINAL check inout and other special types
         p.dir match {
-          case in => {
+          case spinal.core.in => {
             if (p.name == "clock") { // Filter out the clock signal => for explanation, see extractStatements()
               Vector.empty
             } else if (p.name == "reset") {
@@ -290,16 +291,6 @@ object PdgBuilder {
               } else {
                 // Single input. This could use a better solution that uses less code repetition, but this will do.
                 module match {
-                  case _: Component => {
-                    val relatedSignal = Some((prefixSymbol(p.name, prefix), ""))
-                    Vector(CFGStatement(ConnectableStatement(
-                          PDGVertex(file, line, col, s"input_${p.name}", VertexKind.IO, false, modulePath, relatedSignal, None, Some(prefixSymbol(p.name, prefix)), true),
-                          root,
-                          Vector.empty,
-                          prefixSymbols(Vector(RegularDependency(p.name, "", false))),
-                          false
-                        )))
-                  }
                   case _: BlackBox => {
                     Vector(
                       CFGStatement(ConnectableStatement(
@@ -310,11 +301,21 @@ object PdgBuilder {
                         false
                       )))
                   }
+                  case _: Component => {
+                    val relatedSignal = Some((prefixSymbol(p.name, prefix), ""))
+                    Vector(CFGStatement(ConnectableStatement(
+                          PDGVertex(file, line, col, s"input_${p.name}", VertexKind.IO, false, modulePath, relatedSignal, None, Some(prefixSymbol(p.name, prefix)), true),
+                          root,
+                          Vector.empty,
+                          prefixSymbols(Vector(RegularDependency(p.name, "", false))),
+                          false
+                        )))
+                  }
                 }
               }
             }
           }
-          case out => {
+          case spinal.core.out => {
             //if (addCompoundSignal(prefixSymbol(p.name, prefix), p.tpe, prefix, true, typeAliases)) {
             if (true) {
               val compoundDefs = getSingleDeps(new TPE(), Seq.empty, typeAliases, Some(p.name), p.name + ".")
@@ -347,16 +348,6 @@ object PdgBuilder {
             } else {
               // It's a single output
                 module match {
-                  case _: Component => {
-                    Vector(
-                      CFGStatement(ConnectableStatement(
-                        PDGVertex(file, line, col, s"output_${p.name}", VertexKind.IO, false, modulePath, isChiselStatement = true),
-                        root,
-                        prefixSymbols(Vector(RegularDependency(p.name, p.name, false))),
-                        Vector.empty,
-                        false
-                      )))
-                  }
                   case _: BlackBox => {
                     val relatedSignal = Some((prefixSymbol(p.name, prefix), ""))
                     Vector(CFGStatement(ConnectableStatement(
@@ -366,6 +357,16 @@ object PdgBuilder {
                           prefixSymbols(Vector(RegularDependency(p.name, "", false))),
                           false
                         )))
+                  }
+                  case _: Component => {
+                    Vector(
+                      CFGStatement(ConnectableStatement(
+                        PDGVertex(file, line, col, s"output_${p.name}", VertexKind.IO, false, modulePath, isChiselStatement = true),
+                        root,
+                        prefixSymbols(Vector(RegularDependency(p.name, p.name, false))),
+                        Vector.empty,
+                        false
+                      )))
                   }
                 }
             }
