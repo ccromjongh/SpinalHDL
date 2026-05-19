@@ -10,9 +10,9 @@ class BuildPdgPhase extends PhaseMisc {
     
     val startTime = System.nanoTime()
 
-    val componentList: Vector[Component] = Vector.empty
+    var componentList: Vector[Component] = Vector.empty
     pc.topLevel.walkComponents { comp =>
-        componentList :+ comp
+        componentList = componentList :+ comp
     }
 
     val (vertexes, edges, nodes) = buildPDG(componentList, pc.topLevel.name, Seq.empty)
