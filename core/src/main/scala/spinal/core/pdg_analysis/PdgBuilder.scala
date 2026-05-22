@@ -2,11 +2,9 @@ package spinal.core.pdg_analysis
 
 import scala.util.Random
 import scala.collection.mutable.{HashMap, ArrayBuffer, Set}
-import spinal.core.Component
+import spinal.core._
 import spinal.core.internals._
-import spinal.core.BlackBox
 import spinal.core.pdg_analysis.VertexKind._
-import spinal.core.IODirection
 
 /**
   * This file contains the methods for constructing a Program Dependency Graph (PDG) for a circuit.
@@ -59,6 +57,25 @@ object PdgBuilder {
       symbol
     } else {
       prefix + "." + symbol
+    }
+  }
+  
+  def prefixStrings(symbols: Seq[String], prefix: String): Seq[String] = {
+    if (prefix.isBlank()) {
+      symbols
+    } else {
+      symbols.map(s => prefix + "." + s)
+    }
+  }
+
+  def prefixSymbols(symbols: Vector[PDGDependency], prefix: String): Vector[PDGDependency] = {
+    if (prefix.isBlank()) {
+      symbols
+    } else {
+      symbols.map{
+        case r: RegularDependency => r.copy(name = prefix + "." + r.name, rootName = prefix + "." + r.rootName)
+        case c: ConditionalDependency => c.copy(name = prefix + "." + c.name, rootName = prefix + "." + c.rootName, conditionSignals = prefixStrings(c.conditionSignals, prefix))
+      }
     }
   }
 
@@ -261,7 +278,7 @@ object PdgBuilder {
             } else {
               //if (addCompoundSignal(prefixSymbol(p.name, prefix), p.tpe, prefix, false, typeAliases)) {
               if (true) {
-                val compoundDefs = getSingleDeps(new TPE(), Seq.empty, typeAliases, Some(p.name), p.name + ".")
+                val compoundDefs = getSingleDeps(p, Seq.empty, typeAliases, Some(p.name), p.name + ".")
                 compoundDefs.map{d => 
                   if (d.flipped) {
                     // It's an output node
@@ -318,7 +335,7 @@ object PdgBuilder {
           case spinal.core.out => {
             //if (addCompoundSignal(prefixSymbol(p.name, prefix), p.tpe, prefix, true, typeAliases)) {
             if (true) {
-              val compoundDefs = getSingleDeps(new TPE(), Seq.empty, typeAliases, Some(p.name), p.name + ".")
+              val compoundDefs = getSingleDeps(p, Seq.empty, typeAliases, Some(p.name), p.name + ".")
               compoundDefs.map{d => 
                   if (d.flipped) {
                     // It's an input node
@@ -417,9 +434,29 @@ object PdgBuilder {
     (Vector.empty, Vector.empty) // TODO: implement this method to match the dependencies and generate the vertices and edges of the PDG.
   }
 
-  case class TPE()
+  /// Recursively gets individual dependencies from a compound datatype signal.
+  def getSingleDeps(tpe: Data, path: Seq[CompoundSignalPathNode], typeAliases: Seq[DefTypeAlias], rootSymbol: Option[String] = None, prefix: String = ""): Vector[PDGDependency] = {
+    // When "path" runs out, it means that from that point onwards, all dependencies that are left in the reduced tree should be returned
+    val (pathHead, pathTail): (Option[CompoundSignalPathNode], Seq[CompoundSignalPathNode]) = path match {
+      case head +: tail => (Some(head), tail)
+      case _ => (None, Seq.empty)
+    }
 
-  def getSingleDeps(tpe: TPE, path: Seq[CompoundSignalPathNode], typeAliases: Seq[DefTypeAlias], rootSymbol: Option[String] = None, prefix: String = ""): Vector[PDGDependency] = {
+    // All compound signals are `MultiData`
+    tpe match {
+      /*case vec: Vec[?] => {
+        val nextDeps = getSingleDeps(vec.dataType, pathTail, typeAliases, rootSymbol)
+      }
+      case bundle: Bundle => {
+        val fieldMap = bundle.elements.map(e => (e.name, e.dataType)).toMap
+        val nextDeps = fieldMap.flatMap{ case (fieldName, fieldType) =>
+          val newPathNode = BundleField(fieldName)
+          getSingleDeps(fieldType, pathTail, typeAliases, rootSymbol, prefix + "." + fieldName)
+        }.toVector
+      }*/
+      case _ => Vector.empty
+    }
+
     Vector.empty // TODO: implement this method
   }
 
@@ -432,7 +469,77 @@ object PdgBuilder {
     seqMemsTop: Vector[String] = Vector.empty, // This is used to track the sequential memories
     moduleInstanceDependency: Option[PDGDependency] = None // If the the ScopeStatement is a module instance, use this to attach the module definition statement as dependency
   ): Vector[CFGNode] = {
+    val seqMems: ArrayBuffer[String] = ArrayBuffer(seqMemsTop: _*)
+    val modulePath = getModulePath(prefix)
+
+  root.foreachStatements(stmt => {
+      val (file, parsedLine, parsedCol) = getSourceLocation(stmt)
+      val cond_dep = condition.toVector
+      val moduleInstDep = moduleInstanceDependency.toVector
+
+      stmt match {
+        case assignment: AssignmentStatement => {
+          // Handle connections and definitions. This includes nodes, wires, registers, and connections between them.
+          // For each of these statements, we need to determine the dependencies and the provided symbols, as well as the type of the statement (definition, connection, control flow)
+          // We also need to determine if the statement is clocked or not, which is true if it contains any register definitions or connections to registers.
+          // For connections, we also need to determine the direction of the connection (flipped or not), which is determined by the direction of the signal in the module definition and whether the connection is on the left-hand side or right-hand side of the connection.
+
+          val lhsSymbols = extractSymbols(assignment.target, prefix, typeAliases)
+          val rhsSymbols = extractSymbols(assignment.source, prefix, typeAliases)
+          println(s"LHS symbols: $lhsSymbols")
+          println(s"RHS symbols: $rhsSymbols")
+          val clocked = lhsSymbols.exists(s => clockedElements.contains(s.rootName))
+        }
+        case conditional: TreeStatement => {
+          val predExpr = conditional match {
+            case whenStmt: WhenStatement => {
+              println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
+              whenStmt.cond
+            }
+            case switchStmt: SwitchStatement => {
+              println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
+              switchStmt.value
+            }
+          }
+          val condVertexName = predExpr match {
+            case s: BaseType => s.name
+            case _ => generateRandomString(10)
+          }
+          val pred_stmt = ConnectableStatement(
+            PDGVertex(file, parsedLine, parsedCol, condVertexName, VertexKind.ControlFlow, false, modulePath, relatedSignal, isChiselStatement=true),
+            sourceModule,
+            prefixSymbols(predSymbols ++ indexDeps ++ cond_dep ++ moduleInstDep),
+            prefixSymbols(condVertexDep.toVector),
+            false
+          )
+          Vector(CFGFork(predExpr, c.pred.serialize, prefix, conseq_stmts, alt_stmts))
+        }
+        case _ => {
+          println(s"Statement type ${stmt.getClass}: $stmt.")
+        }
+      }
+    })
     Vector()
+  }
+
+  def extractSymbols(expr: Expression, prefix: String, typeAliases: Seq[DefTypeAlias], ignore: Set[String] = Set.empty, findAllDeps: Boolean = true): Vector[PDGDependency] = {
+    val symbols: Vector[PDGDependency] = expr match {
+      case l: Literal => Vector.empty
+      case x: SubAccess => {
+        println(s"SubAccess: ${x.getClass}, value: $x")
+        Vector.empty
+      }
+      case b: BaseType => {
+        println(s"BaseType: ${b.getClass}, value: $b")
+        Vector(RegularDependency(b.name, b.name, false))
+      }
+      case _ => {
+        println(s"Expression type ${expr.getClass}: $expr.")
+        Vector.empty
+      }
+    }
+
+    symbols.filter(d => !ignore.contains(d.name))
   }
 
   def getClockedElements(root: ScopeStatement): Set[String] = {
