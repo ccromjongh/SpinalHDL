@@ -79,6 +79,16 @@ object PdgBuilder {
     }
   }
 
+  def parseLocation(input: String): (String, Int) = {
+    // Split the input on spaces: ["@", "BaseType.scala", "l306"]
+    val parts = input.split(" ")
+
+    val fileName = parts(1)
+    val lineNumber = parts(2).drop(1).toInt
+
+    (fileName, lineNumber)
+  }
+
   def insertVectorProbes(root: Component): Unit = {
     root.walkComponents { comp =>
       val probes = ArrayBuffer[String]()
@@ -258,7 +268,8 @@ object PdgBuilder {
 
     val modulePath = getModulePath(prefix)
 
-    val ioStatements =
+    val ioStatements: Vector[CFGStatement] = Vector.empty
+    /*val ioStatements =
       module.ioSet.flatMap {p =>
         val (file, line, col) = getSourceLocation(p)
         // Todo: SPINAL check inout and other special types
@@ -390,7 +401,7 @@ object PdgBuilder {
 
           }
         }
-      }.toVector
+      }.toVector*/
 
     // Now, we make a list of all the statements that are present in the module.
     // A statement is one of the following: Definition, Connection, ControlFlow
@@ -401,7 +412,8 @@ object PdgBuilder {
       case module: Component => {
         module.dslBody match {
           case b: ScopeStatement => {
-            val statements = extractStatements(b, root, None, getClockedElements(b), moduleMap, typeAliases, prefix, moduleInstanceDependency = moduleDep)
+//            val statements = extractStatements(b, root, None, getClockedElements(b), moduleMap, typeAliases, prefix, moduleInstanceDependency = moduleDep)
+            val statements = scopeToCFG(b, root)
 
             // Combine all the statements
             if (isMain) {
@@ -460,6 +472,108 @@ object PdgBuilder {
     Vector.empty // TODO: implement this method
   }
 
+  def scopeToCFG(root: ScopeStatement, sourceModule: String): Vector[CFGNode] = {
+    var cfgNodes: Vector[CFGNode] = Vector.empty
+    root.foreachStatements {
+      case assignment: AssignmentStatement => {
+        println(s"Assignment expression: ${assignment.target} = ${assignment.source} ${assignment.locationString}")
+        val (file, line) = parseLocation(assignment.locationString)
+        val sourceSymbols = expressionToSymbols(assignment.source)
+        val targetSymbols = expressionToSymbols(assignment.target)
+        val clocked = false
+        val sourceName = sourceSymbols.head.name
+        val cfg = CFGStatement(
+          ConnectableStatement(
+            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, clocked, Seq()),
+            sourceModule,
+            Seq(),
+            Seq(),
+            clocked
+          )
+        )
+        cfgNodes :+= cfg
+      }
+      case conditional: TreeStatement => {
+        val predExpr = conditional match {
+          case whenStmt: WhenStatement => {
+            println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
+            whenStmt.cond
+          }
+          case switchStmt: SwitchStatement => {
+            println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
+            switchStmt.value
+          }
+        }
+        val conditionSymbols = expressionToSymbols(predExpr)
+        val clocked = false
+        val condVertexName = predExpr match {
+          case s: BaseType => s.name
+          case _ => generateRandomString(10)
+        }
+
+        val (left, right) = conditional match {
+          case whenStmt: WhenStatement => (whenStmt.whenTrue, whenStmt.whenFalse)
+        }
+        val leftCFG = scopeToCFG(left, sourceModule)
+        val rightCFG = scopeToCFG(right, sourceModule)
+        val cfg = CFGFork(
+          ConnectableStatement(
+            PDGVertex("", 0, 0, condVertexName, VertexKind.ControlFlow, clocked, Seq()),
+            sourceModule,
+            Seq(),
+            Seq(),
+            clocked
+          ),
+          condVertexName,
+          "",
+          leftCFG,
+          rightCFG,
+        )
+        cfgNodes :+= cfg
+      }
+      case baseType: BaseType => {
+        // Todo how to find out if we are dealing with a register?
+        val clocked = false
+        val cfg = CFGStatement(
+          ConnectableStatement(
+            PDGVertex("", 0, 0, baseType.name, VertexKind.Connection, clocked, Seq()),
+            sourceModule,
+            Seq(),
+            Seq(),
+            clocked
+          )
+        )
+        cfgNodes :+= cfg
+      }
+      case stmt =>
+        println(s"Statement ${stmt.getClassIdentifier} $stmt not implemented")
+    }
+    cfgNodes
+  }
+
+  def expressionToSymbols(expr: Expression, depth: Int = 1): Vector[PDGDependency] = {
+    val indent = " " * depth
+    val symbols: Vector[PDGDependency] = expr match {
+      case a: BinaryOperator => expressionToSymbols(a.left, depth+1) ++ expressionToSymbols(a.right, depth+1)
+      case a: UnaryOperator => expressionToSymbols(a.source)
+      case l: Literal => Vector.empty
+      case x: SubAccess => {
+        println(s"${indent}SubAccess: ${x.getClass}, value: $x")
+        Vector.empty
+      }
+      // This indicates a reference to some signal
+      case b: BaseType => {
+        println(s"${indent}BaseType: ${b.getClass}, value: $b")
+        Vector(RegularDependency(b.name, b.name, false))
+      }
+      case _ => {
+        println(s"${indent}Expression type ${expr.getClass}: $expr.")
+        Vector.empty
+      }
+    }
+    symbols
+  }
+
   def extractStatements(root: ScopeStatement, sourceModule: String,
     condition: Option[PDGDependency],
     clockedElements: Set[String],
@@ -484,8 +598,8 @@ object PdgBuilder {
           // We also need to determine if the statement is clocked or not, which is true if it contains any register definitions or connections to registers.
           // For connections, we also need to determine the direction of the connection (flipped or not), which is determined by the direction of the signal in the module definition and whether the connection is on the left-hand side or right-hand side of the connection.
 
-          val lhsSymbols = extractSymbols(assignment.target, prefix, typeAliases)
-          val rhsSymbols = extractSymbols(assignment.source, prefix, typeAliases)
+          val lhsSymbols = extractSymbolsOriginal(assignment.target, prefix, typeAliases)
+          val rhsSymbols = extractSymbolsOriginal(assignment.source, prefix, typeAliases)
           println(s"LHS symbols: $lhsSymbols")
           println(s"RHS symbols: $rhsSymbols")
           val clocked = lhsSymbols.exists(s => clockedElements.contains(s.rootName))
@@ -505,14 +619,14 @@ object PdgBuilder {
             case s: BaseType => s.name
             case _ => generateRandomString(10)
           }
-          val pred_stmt = ConnectableStatement(
+          /*val pred_stmt = ConnectableStatement(
             PDGVertex(file, parsedLine, parsedCol, condVertexName, VertexKind.ControlFlow, false, modulePath, relatedSignal, isChiselStatement=true),
             sourceModule,
             prefixSymbols(predSymbols ++ indexDeps ++ cond_dep ++ moduleInstDep),
             prefixSymbols(condVertexDep.toVector),
             false
           )
-          Vector(CFGFork(predExpr, c.pred.serialize, prefix, conseq_stmts, alt_stmts))
+          Vector(CFGFork(predExpr, c.pred.serialize, prefix, conseq_stmts, alt_stmts))*/
         }
         case _ => {
           println(s"Statement type ${stmt.getClass}: $stmt.")
@@ -522,7 +636,7 @@ object PdgBuilder {
     Vector()
   }
 
-  def extractSymbols(expr: Expression, prefix: String, typeAliases: Seq[DefTypeAlias], ignore: Set[String] = Set.empty, findAllDeps: Boolean = true): Vector[PDGDependency] = {
+  def extractSymbolsOriginal(expr: Expression, prefix: String, typeAliases: Seq[DefTypeAlias], ignore: Set[String] = Set.empty, findAllDeps: Boolean = true): Vector[PDGDependency] = {
     val symbols: Vector[PDGDependency] = expr match {
       case l: Literal => Vector.empty
       case x: SubAccess => {
