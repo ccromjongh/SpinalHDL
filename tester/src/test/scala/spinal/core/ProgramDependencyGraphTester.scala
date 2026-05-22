@@ -43,6 +43,7 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
   val config = SpinalConfig(
     mode = SystemVerilog,
     svInterface = true,
+    genLineComments = true,
     phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
       { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
     )
