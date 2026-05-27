@@ -76,80 +76,83 @@ case class ProgramDependencyGraph(
     cfg: Seq[ExportableCFGNode]
 )
 
-/*case class ProgramDependencyGraphAnnotation(filename: String, graph: ProgramDependencyGraph)
-    extends NoTargetAnnotation
-    with CustomFileEmission {
-    override protected def baseFileName(annotations: AnnotationSeq): String = filename
+case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependencyGraph) {
 
-    override def getBytes: Iterable[Byte] = {
-        val verticesJson = graph.vertices.map { v =>
-            s"""{
-            |  "file": "${v.file}",
-            |  "line": ${v.line},
-            |  "char": ${v.char},
-            |  "name": "${v.name}",
-            |  "kind": "${v.kind.toString}",
-            |  "clocked": ${v.clocked},
-            |  "modulePath": [${v.modulePath.mkString("\"", "\", \"", "\"")}],
-            |  "relatedSignal": ${v.relatedSignal.map { case (signalPath, fieldPath) =>
-                s"""{
-                |  "signalPath": "$signalPath",
-                |  "fieldPath": "$fieldPath"
-                |}""".stripMargin
-            }.getOrElse("null")},
-            |  "assignsTo": ${v.assignsTo.map(x => s""""$x"""").getOrElse("null")},
-            |  "isChiselStatement": ${v.isChiselStatement},
-            |  "condition": ${v.condition.map { c =>
-                s"""{
-                |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
-                |  "probeValue": [${c.probeValue.mkString(", ")}]
-                |}""".stripMargin
-            }.getOrElse("null")},
-            |  "assignDelay": ${v.assignDelay}
-            |}""".stripMargin
-        }.mkString("[", ",", "]")
+  def getBytes: String = {
+    val verticesJson = graph.vertices.map { v =>
+      s"""{
+         |  "file": "${v.file}",
+         |  "line": ${v.line},
+         |  "char": ${v.char},
+         |  "name": "${v.name}",
+         |  "kind": "${v.kind.toString}",
+         |  "clocked": ${v.clocked},
+         |  "modulePath": [${v.modulePath.mkString("\"", "\", \"", "\"")}],
+         |  "relatedSignal": ${
+        v.relatedSignal.map { case (signalPath, fieldPath) =>
+          s"""{
+             |  "signalPath": "$signalPath",
+             |  "fieldPath": "$fieldPath"
+             |}""".stripMargin
+        }.getOrElse("null")
+      },
+         |  "assignsTo": ${v.assignsTo.map(x => s""""$x"""").getOrElse("null")},
+         |  "isChiselStatement": ${v.isChiselStatement},
+         |  "condition": ${
+        v.condition.map { c =>
+          s"""{
+             |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
+             |  "probeValue": [${c.probeValue.mkString(", ")}]
+             |}""".stripMargin
+        }.getOrElse("null")
+      },
+         |  "assignDelay": ${v.assignDelay}
+         |}""".stripMargin
+    }.mkString("[", ",", "]")
 
-        val edgesJson = graph.edges.map { e =>
-            s"""{
-            |  "from": ${e.from},
-            |  "to": ${e.to},
-            |  "kind": "${e.kind.toString}",
-            |  "clocked": ${e.clocked},
-            |  "condition": ${e.condition.map { c =>
-                s"""{
-                |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
-                |  "probeValue": [${c.probeValue.mkString(", ")}]
-                |}""".stripMargin
-            }.getOrElse("null")}
-            |}""".stripMargin
-        }.mkString("[", ",", "]")
+    val edgesJson = graph.edges.map { e =>
+      s"""{
+         |  "from": ${e.from},
+         |  "to": ${e.to},
+         |  "kind": "${e.kind.toString}",
+         |  "clocked": ${e.clocked},
+         |  "condition": ${
+        e.condition.map { c =>
+          s"""{
+             |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
+             |  "probeValue": [${c.probeValue.mkString(", ")}]
+             |}""".stripMargin
+        }.getOrElse("null")
+      }
+         |}""".stripMargin
+    }.mkString("[", ",", "]")
 
-        val predicatesJson = graph.predicates.map { p =>
-            s"""{
-            |  "file": "${p.file}",
-            |  "line": ${p.line},
-            |  "char": ${p.char},
-            |  "name": "${p.name}",
-            |  "kind": "${p.kind.toString}",
-            |  "clocked": false,
-            |  "isChiselStatement": false
-            |}""".stripMargin
-        }.mkString("[", ",", "]")
+    val predicatesJson = graph.predicates.map { p =>
+      s"""{
+         |  "file": "${p.file}",
+         |  "line": ${p.line},
+         |  "char": ${p.char},
+         |  "name": "${p.name}",
+         |  "kind": "${p.kind.toString}",
+         |  "clocked": false,
+         |  "isChiselStatement": false
+         |}""".stripMargin
+    }.mkString("[", ",", "]")
 
-        val cfgJson = getCFGJsonRecursive(graph.cfg)
-        
-        val outString =
-            s"""{
-            |  "vertices": $verticesJson,
-            |  "edges": $edgesJson,
-            |  "predicates": $predicatesJson,
-            |  "cfg": $cfgJson
-            |}""".stripMargin
+    val cfgJson = getCFGJsonRecursive(graph.cfg)
 
-        outString.getBytes()
-    }
+    val outString =
+      s"""{
+         |  "vertices": $verticesJson,
+         |  "edges": $edgesJson,
+         |  "predicates": $predicatesJson,
+         |  "cfg": $cfgJson
+         |}""".stripMargin
 
-    def getCFGJsonRecursive(nodes: Seq[ExportableCFGNode]): String = {
+    outString
+  }
+
+    private def getCFGJsonRecursive(nodes: Seq[ExportableCFGNode]): String = {
         nodes.map { node =>
             // Always include the stmtRef field
             val stmtRefJson = s""""stmtRef": ${node.stmtRef}"""
@@ -177,9 +180,4 @@ case class ProgramDependencyGraph(
             s"{$fields}"
         }.mkString("[", ", ", "]")
     }
-
-
-    override protected def suffix: Option[String] = {
-        Some(".json")
-    }
-}*/
+}

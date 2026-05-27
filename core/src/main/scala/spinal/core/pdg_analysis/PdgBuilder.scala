@@ -235,7 +235,7 @@ object PdgBuilder {
     modulePrefixes.clear()
     random = new Random(seed = 123456L)
     // First, make a map of the module by name for referencing the instances
-    val moduleMap = modules.map(m => (m.name, m)).toMap
+    val moduleMap = modules.map(m => (m.definitionName, m)).toMap
     val statements = findDependenciesRecursive(moduleMap, mainModule, typeAliases)
 
     val (verts, edges) = matchDependencies(statements)
@@ -443,7 +443,63 @@ object PdgBuilder {
   }
 
   def matchDependencies(stmts: Seq[CFGNode]): (Vector[PDGVertex], Vector[PDGEdge]) = {
-    (Vector.empty, Vector.empty) // TODO: implement this method to match the dependencies and generate the vertices and edges of the PDG.
+    // This makes a map that lists all nodes that provide a certain statement
+    def getConnectableStatements(s: Seq[CFGNode]): Seq[ConnectableStatement] = {
+      s.flatMap {
+        case CFGStatement(stmt) => Seq(stmt)
+        case CFGFork(stmt, _, _, left, right) => Seq(stmt) ++ getConnectableStatements(left) ++ getConnectableStatements(right)
+      }
+    }
+
+    val allStatements = getConnectableStatements(stmts)
+
+    // Todo: Check out the memory statements
+    val flattenedStmts: Seq[ConnectableStatement] = allStatements
+
+    val providerMap = flattenedStmts.flatMap(stmt => stmt.provides.map(provider => provider.name -> stmt))
+      .groupBy(_._1)
+      .map { case (provider, pairs) => provider -> pairs.map(_._2) }
+
+    // Now that there is a provider map, the dependencies can be matched and edges can be created.
+    val (allVerts, allEdges) = flattenedStmts.foldLeft((Vector.empty[PDGVertex], Vector.empty[PDGEdge])) {
+      case ((verts, edges), s: ConnectableStatement) => {
+        val deps: Seq[(ConnectableStatement, PDGDependency)] = s.dependencies.flatMap(d => providerMap.getOrElse(d.name, {
+          println(s"Warning: dependency without provider: ${d.name}; Vertex:")
+          println(s)
+          Seq.empty[ConnectableStatement]
+        }).map(x => (x, d)))
+        val newEdges = deps.flatMap { d =>
+          val edgeCondition = d._2 match {
+            case r: RegularDependency => None
+            case ConditionalDependency(_, _, _, _, conditionSignals, conditionValues) => Some(PDGCondition(conditionSignals, conditionValues))
+          }
+
+          val isIndexEdge = d._2 match {
+            case r: RegularDependency => r.isIndex
+            case c: ConditionalDependency => false
+          }
+
+          if (isIndexEdge) {
+            Seq(PDGEdge(s.vertex, d._1.vertex, EdgeKind.Index, s.clocked, edgeCondition))
+          } else {
+            d._1.vertex.kind match {
+              case DataDefinition => Seq(
+                PDGEdge(s.vertex, d._1.vertex, EdgeKind.Data, s.clocked, edgeCondition),
+                PDGEdge(s.vertex, d._1.vertex, EdgeKind.Declaration, false, edgeCondition)
+              )
+              case Connection => Seq(PDGEdge(s.vertex, d._1.vertex, EdgeKind.Data, s.clocked, edgeCondition))
+              case ControlFlow => Seq(PDGEdge(s.vertex, d._1.vertex, EdgeKind.Conditional, s.clocked, edgeCondition))
+              case Definition => Seq(PDGEdge(s.vertex, d._1.vertex, EdgeKind.Declaration, false, edgeCondition))
+              case IO => Seq(PDGEdge(s.vertex, d._1.vertex, EdgeKind.Data, s.clocked, edgeCondition))
+            }
+          }
+        }
+
+        (verts :+ s.vertex, edges ++ newEdges)
+      }
+    }
+
+    (allVerts, allEdges)
   }
 
   /// Recursively gets individual dependencies from a compound datatype signal.
@@ -486,8 +542,8 @@ object PdgBuilder {
           ConnectableStatement(
             PDGVertex(file, line, 0, sourceName, VertexKind.Connection, clocked, Seq()),
             sourceModule,
-            Seq(),
-            Seq(),
+            sourceSymbols,
+            targetSymbols,
             clocked
           )
         )
@@ -518,9 +574,9 @@ object PdgBuilder {
         val rightCFG = scopeToCFG(right, sourceModule)
         val cfg = CFGFork(
           ConnectableStatement(
-            PDGVertex("", 0, 0, condVertexName, VertexKind.ControlFlow, clocked, Seq()),
+            PDGVertex("", 0, 0, condVertexName, VertexKind.ControlFlow, clocked, Seq(), condition=None),
             sourceModule,
-            Seq(),
+            conditionSymbols,
             Seq(),
             clocked
           ),
@@ -533,13 +589,13 @@ object PdgBuilder {
       }
       case baseType: BaseType => {
         // Todo how to find out if we are dealing with a register?
-        val clocked = false
+        val clocked = baseType.isReg
         val cfg = CFGStatement(
           ConnectableStatement(
             PDGVertex("", 0, 0, baseType.name, VertexKind.Connection, clocked, Seq()),
             sourceModule,
             Seq(),
-            Seq(),
+            Seq(RegularDependency(baseType.name, "", flipped = false)),
             clocked
           )
         )
@@ -564,7 +620,7 @@ object PdgBuilder {
       // This indicates a reference to some signal
       case b: BaseType => {
         println(s"${indent}BaseType: ${b.getClass}, value: $b")
-        Vector(RegularDependency(b.name, b.name, false))
+        Vector(RegularDependency(b.name, "", flipped = false))
       }
       case _ => {
         println(s"${indent}Expression type ${expr.getClass}: $expr.")

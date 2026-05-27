@@ -49,7 +49,7 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
     )
   )
 
-  SimConfig.withConfig(config).withFstWave.compile(comp).doSim { dut =>
+  SimConfig.withConfig(config).withVcdWave.compile(comp).doSim { dut =>
     // Fork a process to generate the reset and the clock on the dut
     dut.clockDomain.forkStimulus(period = 10)
     // Wait for reset to be done
