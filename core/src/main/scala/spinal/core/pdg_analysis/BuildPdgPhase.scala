@@ -2,9 +2,15 @@ package spinal.core.pdg_analysis
 
 import spinal.core.internals._
 import spinal.core._
+import spinal.core.fiber.Handle.initImplicit
 import spinal.core.pdg_analysis.PdgBuilder._
 
+import scala.collection.mutable.ArrayBuffer
+import scala.util.Random
+
 class BuildPdgPhase extends PhaseMisc {
+  var random = new Random(seed = 123456L)
+
   override def impl(pc: PhaseContext): Unit = {
     import pc._
     
@@ -15,13 +21,28 @@ class BuildPdgPhase extends PhaseMisc {
         componentList = componentList :+ comp
     }
 
+    // Now, we add nodes that will allow us to read the predicate signals from a VCD
+    val modulePredMap = scala.collection.mutable.HashMap[String, Map[String, String]]()
+    createProbes(pc.topLevel, modulePredMap)
+
     val (verts, edges, cfg) = buildPDG(componentList, pc.topLevel.definitionName, Seq.empty)
 
     val vertMap = verts.zipWithIndex.toMap
     val serializableEdges = edges.map(e => PDGEdgeSerializable(vertMap(e.from), vertMap(e.to), e.kind, e.clocked, e.condition))
 
-    // Now, we add nodes that will allow us to read the predicate signals from a VCD
-    val modulePredMap = scala.collection.mutable.HashMap[String, Map[String, String]]()
+    /*pc.topLevel.walkComponents { comp =>
+      comp.dslBody.walkLeafStatements {
+        case t: BaseType => {
+          val isPred = t.name.startsWith("when_")
+          if (isPred) {
+            modulePredMap(comp.definitionName) = modulePredMap.getOrElse(comp.definitionName, Map.empty) + (t.name -> t.name)
+          }
+          print(t)
+        }
+        case _ =>
+      }
+    }*/
+
 
     val numVerts = verts.length
     val predicateVerts = scala.collection.mutable.ArrayBuffer[PDGVertex]()
@@ -40,7 +61,7 @@ class BuildPdgPhase extends PhaseMisc {
           vertMap.get(stmt.vertex) match {
             case None => Seq.empty
             case Some(vert) => {
-              /*// First, get the name of the newly inserted probe node
+              // First, get the name of the newly inserted probe node
               val predNodeName = modulePredMap(stmt.sourceModule)(predSignalName)
               // dontTouchAnnos.append(DontTouchAnnotation(ComponentName(predNodeName, ModuleName(stmt.sourceModule, CircuitName(circuit.main)))))
 
@@ -52,8 +73,8 @@ class BuildPdgPhase extends PhaseMisc {
               if (predIdx == -1) {
                 predIdx = predicateVerts.length
                 predicateVerts.append(PDGVertex(stmt.vertex.file, stmt.vertex.line, stmt.vertex.char, hierPredNodeName, VertexKind.DataDefinition, false, Seq.empty))
-              }*/
-              val predIdx = 0
+              }
+//              var predIdx = 0
 
               Seq(ExportableCFGNode(vert, Some(predIdx), Some(makeCFGExportable(left)), Some(makeCFGExportable(right))))
             }
@@ -76,5 +97,60 @@ class BuildPdgPhase extends PhaseMisc {
     outFile.write(pdgJSON)
     outFile.close()
     println(f"PDG JSON file written to $targetPath.")
+  }
+
+  private def generateRandomString(length: Int): String = {
+    val letters = ('a' to 'z').mkString + ('A' to 'Z').mkString
+    (1 to length).map(_ => letters(random.nextInt(letters.length))).mkString
+  }
+
+  def createProbes(comp: Component, modulePredMap: scala.collection.mutable.HashMap[String, Map[String, String]]): Unit = {
+    val targets = ArrayBuffer[WhenStatement]()
+    var compPredMap: Map[String, String] = Map.empty
+
+    comp.dslBody.walkStatements {
+      case cond: WhenStatement => targets += cond
+      case _ =>
+    }
+
+    for (cond <- targets) {
+      val condition = cond.cond
+      val parent = cond.parentScope
+
+      val proxy = Bool()
+      val name = "probe_" + generateRandomString(10)
+      proxy.setName(name)
+      proxy.setRefOwner(comp)
+      proxy.parentScope = parent
+
+      val assign = InitAssignmentStatement(proxy, condition)
+      assign.locationString = "@ BuildPdgPhase.scala l124"
+
+      cond.insertNext(proxy)
+      proxy.insertNext(assign)
+      cond.cond = proxy
+      compPredMap += name -> name
+    }
+    modulePredMap(comp.definitionName) = compPredMap
+
+    comp.children.foreach(_.walkComponents(nested => createProbes(nested, modulePredMap)))
+
+    /*var compPredMap: Map[String, String] = Map.empty
+    comp.dslBody.walkStatements {
+      case cond: WhenStatement => {
+        val condition = cond.cond
+        val isPred = condition.name.startsWith("when_")
+        if (isPred) {
+          compPredMap += condition.name -> condition.name
+        } else {
+          val newStatement = Bool()
+          newStatement := condition
+          val name = "probe_" + generateRandomString(10)
+          newStatement.setName(name)
+          compPredMap += name -> name
+          cond.parentScope.head.insertNext(newStatement)
+        }
+      }
+    }*/
   }
 }
