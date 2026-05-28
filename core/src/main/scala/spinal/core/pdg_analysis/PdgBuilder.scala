@@ -540,7 +540,7 @@ object PdgBuilder {
         val sourceName = sourceSymbols.head.name
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, clocked, Seq()),
+            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, clocked, Seq(), assignsTo = Some(sourceName)),
             sourceModule,
             sourceSymbols,
             targetSymbols,
@@ -592,7 +592,7 @@ object PdgBuilder {
         val clocked = baseType.isReg
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex("", 0, 0, baseType.name, VertexKind.Connection, clocked, Seq()),
+            PDGVertex("", 0, 0, baseType.name, VertexKind.Definition, clocked, Seq(), assignsTo = Some(baseType.name)),
             sourceModule,
             Seq(),
             Seq(RegularDependency(baseType.name, "", flipped = false)),
