@@ -44,6 +44,7 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
     mode = SystemVerilog,
     svInterface = true,
     genLineComments = true,
+    dumpWave = DumpWaveConfig(10, "GCD.vcd"),
     phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
       { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
     )
