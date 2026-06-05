@@ -49,7 +49,12 @@ object PdgBuilder {
   }
 
   def getSourceLocation(stmt: Statement): (String, Int, Int) = {
-    ("unknown_file", 0, 0) // TODO: implement this properly. This is a placeholder to allow for testing of the rest of the code without having to worry about file info parsing.
+    val l = stmt.sourceLocation
+    if (l != null) {
+      (l.file + ".scala", l.line, l.col)
+    } else {
+      ("unknown_file", 0, 0)
+    }
   }
 
   def prefixSymbol(symbol: String, prefix: String): String = {

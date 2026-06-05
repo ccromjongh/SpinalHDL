@@ -30,9 +30,9 @@ import scala.collection.mutable.ArrayBuffer
   */
 trait UIntFactory{
   /** Create a new UInt */
-  def UInt(u: Unit = ()): UInt = new UInt()
+  def UInt(u: Unit = ())(implicit loc: Location): UInt = new UInt().setLocation(loc)
   /** Create a new UInt of a given width */
-  def UInt(width: BitCount): UInt = UInt().setWidth(width.value)
+  def UInt(width: BitCount)(implicit loc: Location): UInt = UInt().setWidth(width.value)
 }
 
 
