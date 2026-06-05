@@ -536,15 +536,21 @@ object PdgBuilder {
         val (file, line) = parseLocation(assignment.locationString)
         val sourceSymbols = expressionToSymbols(assignment.source)
         val targetSymbols = expressionToSymbols(assignment.target)
-        val clocked = false
+        val target = assignment.target
+        // We must know whether the target is a register or not, to let the slicer know that this dependency is spread over time.
+        val isReg = target match {
+          case t: BaseType => t.isReg
+          case _ => false
+        }
         val sourceName = sourceSymbols.head.name
+        val targetName = targetSymbols.head.name
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, clocked, Seq(), assignsTo = Some(sourceName)),
+            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, isReg, Seq(), assignsTo = Some(sourceName)),
             sourceModule,
             sourceSymbols,
             targetSymbols,
-            clocked
+            isReg
           )
         )
         cfgNodes :+= cfg
@@ -588,15 +594,20 @@ object PdgBuilder {
         cfgNodes :+= cfg
       }
       case baseType: BaseType => {
-        // Todo how to find out if we are dealing with a register?
         val clocked = baseType.isReg
+        // Todo: What about inout ports?
+        val flipped = baseType.isInput
+        val isIO = !baseType.isDirectionLess
+        val kind = if (isIO) VertexKind.IO else VertexKind.Definition
+        val dependency = RegularDependency(baseType.name, "", flipped = flipped)
+        val (file, line, col) = getSourceLocation(baseType)
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex("", 0, 0, baseType.name, VertexKind.Definition, clocked, Seq(), assignsTo = Some(baseType.name)),
+            PDGVertex(file, line, col, baseType.name, kind, clocked, Seq(), assignsTo = Some(baseType.name)),
             sourceModule,
-            Seq(),
-            Seq(RegularDependency(baseType.name, "", flipped = false)),
-            clocked
+            dependencies=if (!flipped) Seq(dependency) else Seq(),
+            provides=if (flipped) Seq(dependency) else Seq(),
+            clocked=clocked
           )
         )
         cfgNodes :+= cfg
