@@ -1,5 +1,7 @@
 package spinal.core
 
+import spinal.idslplugin.Location
+
 /** Declare ports
   *
   * A port is some Data with a direction, which can be `in`, `out` or `inout`.
@@ -90,13 +92,13 @@ sealed trait IODirection extends BaseTypeFactory {
     *
     * See [[IODirection]] for other syntaxes.
     */
-  override def Bool(u: Unit = ()): Bool = port(super.Bool())
+  override def Bool(u: Unit = ())(implicit loc: Location): Bool = port(super.Bool())
 
-  override def Bits(u: Unit = ()): Bits = port(super.Bits())
+  override def Bits(u: Unit = ())(implicit loc: Location): Bits = port(super.Bits())
 
-  override def UInt(u: Unit = ()): UInt = port(super.UInt())
+  override def UInt(u: Unit = ())(implicit loc: Location): UInt = port(super.UInt())
 
-  override def SInt(u: Unit = ()): SInt = port(super.SInt())
+  override def SInt(u: Unit = ())(implicit loc: Location): SInt = port(super.SInt())
 
   override def Vec[T <: Data](elements: TraversableOnce[T], dataType: HardType[T] = null): Vec[T] =
     port(super.Vec(elements, dataType))

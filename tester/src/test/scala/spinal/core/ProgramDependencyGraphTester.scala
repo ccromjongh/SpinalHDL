@@ -3,6 +3,7 @@ package spinal.core
 import spinal.core._
 import spinal.core.internals._
 import spinal.tester.SpinalAnyFunSuite
+
 import scala.collection.mutable.ArrayBuffer
 import spinal.core.pdg_analysis.BuildPdgPhase
 
@@ -44,6 +45,7 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
     mode = SystemVerilog,
     svInterface = true,
     genLineComments = true,
+    genPDG = true,
     dumpWave = DumpWaveConfig(10, "GCD.vcd"),
     phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
       { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }

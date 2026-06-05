@@ -28,9 +28,9 @@ import spinal.idslplugin.Location
   */
 trait SIntFactory {
   /** Create a new SInt */
-  def SInt(u: Unit = ()) = new SInt()
+  def SInt(u: Unit = ())(implicit loc: Location) = new SInt().setLocation(loc)
   /** Create a new SInt of a given width */
-  def SInt(width: BitCount): SInt = SInt().setWidth(width.value)
+  def SInt(width: BitCount)(implicit loc: Location): SInt = SInt().setWidth(width.value)
 }
 
 

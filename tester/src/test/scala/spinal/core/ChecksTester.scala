@@ -389,18 +389,18 @@ class ChecksTester extends SpinalAnyFunSuite  {
 
   test("catchNegativeRangedAccess1") {
     generationShouldFail(new Component {
-      Bits(32 bits)(4 downto 7)
+      Bits(32 bits).apply(4 downto 7)
     })
   }
 
   test("catchNegativeRangedAccess2") {
     generationShouldFail(new Component {
-      Bits(32 bits)(-1 downto -2)
+      Bits(32 bits).apply(-1 downto -2)
     })
   }
   test("catchNegativeRangedAccess3") {
     generationShouldFail(new Component {
-      Bits(32 bits)(4 downto 7) := 0
+      Bits(32 bits).apply(4 downto 7) := 0
     })
   }
 
