@@ -28,10 +28,10 @@ import spinal.idslplugin.Location
 trait BoolFactory {
   /** Deprecated, use [[Bool()]] (with braces) instead */
   @deprecated("Use `Bool()` (with braces) instead")  
-  def Bool: Bool = Bool()
+  def Bool(implicit loc: Location): Bool = Bool()
 
   /** Create a new `Bool` */
-  def Bool(u: Unit = ()): Bool = new Bool
+  def Bool(u: Unit = ())(implicit loc: Location): Bool = (new Bool).setLocation(loc)
 
   /** Create a new `Bool` with a value */
   def Bool(value: Boolean)(implicit loc: Location): Bool = BoolLiteral(value, Bool().setAsTypeNode())

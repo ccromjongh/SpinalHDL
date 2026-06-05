@@ -28,9 +28,9 @@ import spinal.idslplugin.Location
   */
 trait BitsFactory {
   /** Create a new Bits */
-  def Bits(u: Unit = ()): Bits = new Bits()
+  def Bits(u: Unit = ())(implicit loc: Location): Bits = new Bits().setLocation(loc)
   /** Create a new Bits of a given width */
-  def Bits(width: BitCount): Bits = Bits().setWidth(width.value)
+  def Bits(width: BitCount)(implicit loc: Location): Bits = Bits().setWidth(width.value)
 }
 
 

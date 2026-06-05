@@ -211,6 +211,13 @@ object Statement{
 trait Statement extends ExpressionContainer with ContextUser with ScalaLocated with BaseNode{
   var lastScopeStatement, nextScopeStatement: Statement = null
 
+  var sourceLocation: Location = null
+
+  def setLocation(loc: Location): this.type ={
+    if(globalData.config.genPDG) sourceLocation = loc
+    this
+  }
+
   def rootScopeStatement: ScopeStatement = if(parentScope.parentStatement != null) parentScope.parentStatement.rootScopeStatement else parentScope
 
   def removeStatement(): Unit = {
@@ -319,7 +326,8 @@ abstract class AssignmentStatement extends LeafStatement with StatementDoubleLin
   var target, source: Expression = null
   var locationString : String = null
 
-  def setLocation(loc : Location): this.type ={
+  override def setLocation(loc : Location): this.type = {
+    super.setLocation(loc)
     if(globalData.config.genLineComments) locationString = s"@ ${loc.file}.scala l${loc.line}"
     this
   }
