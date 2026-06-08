@@ -81,7 +81,7 @@ object when {
         cond.setName("when_" + loc.fileSymbol + "_l" + loc.line, Nameable.REMOVABLE)
       }
     }
-    val whenStatement = new WhenStatement(cond)
+    val whenStatement = new WhenStatement(cond).setLocation(loc)
     val whenContext   = new WhenContext(whenStatement)
 
     DslScopeStack.get.append(whenStatement)
