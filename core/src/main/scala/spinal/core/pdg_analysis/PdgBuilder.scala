@@ -418,7 +418,7 @@ object PdgBuilder {
         module.dslBody match {
           case b: ScopeStatement => {
 //            val statements = extractStatements(b, root, None, getClockedElements(b), moduleMap, typeAliases, prefix, moduleInstanceDependency = moduleDep)
-            val statements = scopeToCFG(b, root)
+            val statements = scopeToCFG(b, root, None)
 
             // Combine all the statements
             if (isMain) {
@@ -533,12 +533,13 @@ object PdgBuilder {
     Vector.empty // TODO: implement this method
   }
 
-  def scopeToCFG(root: ScopeStatement, sourceModule: String): Vector[CFGNode] = {
+  def scopeToCFG(root: ScopeStatement, sourceModule: String, condition: Option[PDGDependency]): Vector[CFGNode] = {
     var cfgNodes: Vector[CFGNode] = Vector.empty
+    val conditionalDep = condition.toVector
     root.foreachStatements {
       case assignment: AssignmentStatement => {
         println(s"Assignment expression: ${assignment.target} = ${assignment.source} ${assignment.locationString}")
-        val (file, line) = parseLocation(assignment.locationString)
+        val (file, line, col) = getSourceLocation(assignment)
         val sourceSymbols = expressionToSymbols(assignment.source)
         val targetSymbols = expressionToSymbols(assignment.target)
         val target = assignment.target
@@ -549,13 +550,14 @@ object PdgBuilder {
         }
         val sourceName = sourceSymbols.head.name
         val targetName = targetSymbols.head.name
+        val relatedSignal = Some((targetName, ""))
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, 0, sourceName, VertexKind.Connection, isReg, Seq(), assignsTo = Some(sourceName)),
+            PDGVertex(file, line, col, targetName, VertexKind.Connection, isReg, Seq(), relatedSignal, assignsTo = Some(targetName)),
             sourceModule,
-            sourceSymbols,
-            targetSymbols,
-            isReg
+            dependencies = sourceSymbols ++ conditionalDep,
+            provides = targetSymbols,
+            clocked = isReg
           )
         )
         cfgNodes :+= cfg
@@ -581,15 +583,19 @@ object PdgBuilder {
         val (left, right) = conditional match {
           case whenStmt: WhenStatement => (whenStmt.whenTrue, whenStmt.whenFalse)
         }
-        val leftCFG = scopeToCFG(left, sourceModule)
-        val rightCFG = scopeToCFG(right, sourceModule)
+//        val nestedConditionalDependency = ConditionalDependency(condVertexName, condVertexName, false, "", Seq(condVertexName),)
+        val nestedConditionalDependency = RegularDependency(condVertexName, condVertexName, flipped = false)
+        val leftCFG = scopeToCFG(left, sourceModule, Some(nestedConditionalDependency))
+        val rightCFG = scopeToCFG(right, sourceModule, Some(nestedConditionalDependency))
+        val (file, line, col) = getSourceLocation(conditional)
+        val relatedSignal = Some((condVertexName, ""))
         val cfg = CFGFork(
           ConnectableStatement(
-            PDGVertex("", 0, 0, condVertexName, VertexKind.ControlFlow, clocked, Seq(), condition=None),
+            PDGVertex(file, line, col, condVertexName, VertexKind.ControlFlow, clocked, Seq(), relatedSignal, condition=None),
             sourceModule,
-            conditionSymbols,
-            Seq(),
-            clocked
+            dependencies = conditionalDep,
+            provides = conditionSymbols,
+            clocked = clocked
           ),
           condVertexName,
           "",
@@ -606,13 +612,14 @@ object PdgBuilder {
         val kind = if (isIO) VertexKind.IO else VertexKind.Definition
         val dependency = RegularDependency(baseType.name, "", flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
+        val relatedSignal = Some((baseType.name, ""))
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, col, baseType.name, kind, clocked, Seq(), assignsTo = Some(baseType.name)),
+            PDGVertex(file, line, col, baseType.name, kind, clocked, Seq(), relatedSignal, assignsTo = Some(baseType.name)),
             sourceModule,
-            dependencies=if (!flipped) Seq(dependency) else Seq(),
-            provides=if (flipped) Seq(dependency) else Seq(),
-            clocked=clocked
+            dependencies = if (!flipped) Seq(dependency) else Seq(),
+            provides = if (flipped) Seq(dependency) else Seq(),
+            clocked = clocked
           )
         )
         cfgNodes :+= cfg

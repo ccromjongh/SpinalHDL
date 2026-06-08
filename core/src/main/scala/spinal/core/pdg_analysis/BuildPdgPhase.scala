@@ -122,9 +122,12 @@ class BuildPdgPhase extends PhaseMisc {
       proxy.setName(name)
       proxy.setRefOwner(comp)
       proxy.parentScope = parent
+      proxy.setLocation(cond.sourceLocation)
 
       val assign = InitAssignmentStatement(proxy, condition)
-      assign.locationString = "@ BuildPdgPhase.scala l124"
+      if (cond.sourceLocation != null) {
+        assign.setLocation(cond.sourceLocation)
+      }
 
       cond.insertNext(proxy)
       proxy.insertNext(assign)
