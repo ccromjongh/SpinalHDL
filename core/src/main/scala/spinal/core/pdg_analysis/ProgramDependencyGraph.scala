@@ -42,7 +42,7 @@ case class PDGVertex(
     relatedSignal: Option[(String, String)] = None, // Hierarchical path to signal, field path to individual node
     condition: Option[PDGCondition] = None,
     assignsTo: Option[String] = None,
-    isChiselStatement: Boolean = false, // Indicates that the statement refers to an original chisel statement (so no nodes/wires/regs with _ prefix)
+    isChiselStatement: Boolean = true, // Indicates that the statement refers to an original chisel statement (so no nodes/wires/regs with _ prefix)
     assignDelay: Int = 0, // Enables support for sequential memories
     uid: String = UUID.randomUUID().toString // To allow hashing of otherwise identical vertices
 )
