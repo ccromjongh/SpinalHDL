@@ -31,6 +31,22 @@ case class PDGCondition(
     probeValue: Seq[Int]
 )
 
+/**
+ *
+ * @param file File this symbol resides in
+ * @param line Line of the symbol in the file
+ * @param char Column of the symbol in the line
+ * @param name Unique identifier for the symbol. This name is used for statements to depend on. Will be displayed in the graph viewer as the node's label.
+ * @param kind The type, or roll, of this symbol
+ * @param clocked Is this element clocked? I.e., is it a register?
+ * @param modulePath Hierarchical path to module
+ * @param relatedSignal Hierarchical path to signal, field path to individual node
+ * @param condition Todo: figure out when this is used
+ * @param assignsTo Signal that this symbol assigns to, not set for conditionals
+ * @param isChiselStatement Indicates that the statement refers to an original chisel statement (so no nodes/wires/regs with _ prefix)
+ * @param assignDelay Enables support for sequential memories
+ * @param uid To allow hashing of otherwise identical vertices
+ */
 case class PDGVertex(
     file: String,
     line: Int,
@@ -39,12 +55,12 @@ case class PDGVertex(
     kind: VertexKind,
     clocked: Boolean,
     modulePath: Seq[String],
-    relatedSignal: Option[(String, String)] = None, // Hierarchical path to signal, field path to individual node
+    relatedSignal: Option[(String, String)] = None,
     condition: Option[PDGCondition] = None,
     assignsTo: Option[String] = None,
-    isChiselStatement: Boolean = true, // Indicates that the statement refers to an original chisel statement (so no nodes/wires/regs with _ prefix)
-    assignDelay: Int = 0, // Enables support for sequential memories
-    uid: String = UUID.randomUUID().toString // To allow hashing of otherwise identical vertices
+    isChiselStatement: Boolean = true,
+    assignDelay: Int = 0,
+    uid: String = UUID.randomUUID().toString
 )
 
 case class PDGEdge(

@@ -118,7 +118,10 @@ class BuildPdgPhase extends PhaseMisc {
       val parent = cond.parentScope
 
       val proxy = Bool()
-      val name = "probe_" + generateRandomString(10)
+      // Important: predicates for conditional statements are *not* probes, the GUI trace app will treat them differently.
+      // This is, as I understand it, not a design choice but something that happened through the agile nature of a thesis during development.
+      // Todo: see if this can be turned into a more semantic name.
+      val name = "pred_" + generateRandomString(10)
       proxy.setName(name)
       proxy.setRefOwner(comp)
       proxy.parentScope = parent
