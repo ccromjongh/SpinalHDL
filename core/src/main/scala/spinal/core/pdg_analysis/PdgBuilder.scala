@@ -134,11 +134,20 @@ object PdgBuilder {
   case object InferWrite extends InferDirection
   case object InferRead extends InferDirection
 
+  /**
+   *
+   * @param vertex Definition of the symbol and its properties
+   * @param sourceModule The module that the statement is from
+   * @param dependencies The symbols that the statement depends on
+   * @param provides The symbols that the statement provides. This is used to in conjunction with the dependencies to form edges.
+   * @param clocked Is this element clocked? I.e., is it a register?
+   * @param isInferredMemoryDirection In Chisel, memories can have an unspecified direction, which needs to be inferred
+   */
   case class ConnectableStatement(
     vertex: PDGVertex,
-    sourceModule: String, // The module that the statement is from
+    sourceModule: String,
     dependencies: Seq[PDGDependency],
-    provides: Seq[PDGDependency], // The symbols that the statement provides. This is used to in conjunction with the dependencies to form edges.
+    provides: Seq[PDGDependency],
     clocked: Boolean,
     isInferredMemoryDirection: Option[InferDirection] = None
   )
@@ -151,6 +160,14 @@ object PdgBuilder {
     stmt: ConnectableStatement
   ) extends CFGNode
 
+  /**
+   * Represents a condition in the circuit in the CFG
+   * @param stmt The properties of this signal node
+   * @param predSignalName Signal name in VCD with the value of the predicate
+   * @param hierPrefix Hierarchy prefix of signal within VCD
+   * @param left The 'true' branch of a conditional
+   * @param right The alternative branch
+   */
   case class CFGFork(
     stmt: ConnectableStatement,
     predSignalName: String,
@@ -573,28 +590,28 @@ object PdgBuilder {
             switchStmt.value
           }
         }
-        val conditionSymbols = expressionToSymbols(predExpr)
         val clocked = false
         val condVertexName = predExpr match {
           case s: BaseType => s.name
           case _ => generateRandomString(10)
         }
+        val nodeName = s"cond $condVertexName"
 
         val (left, right) = conditional match {
           case whenStmt: WhenStatement => (whenStmt.whenTrue, whenStmt.whenFalse)
         }
-//        val nestedConditionalDependency = ConditionalDependency(condVertexName, condVertexName, false, "", Seq(condVertexName),)
-        val nestedConditionalDependency = RegularDependency(condVertexName, condVertexName, flipped = false)
+        val nestedConditionalDependency = RegularDependency(nodeName, nodeName, flipped = false)
         val leftCFG = scopeToCFG(left, sourceModule, Some(nestedConditionalDependency))
         val rightCFG = scopeToCFG(right, sourceModule, Some(nestedConditionalDependency))
         val (file, line, col) = getSourceLocation(conditional)
         val relatedSignal = Some((condVertexName, ""))
+        val predDependency = RegularDependency(condVertexName, condVertexName, flipped = false)
         val cfg = CFGFork(
           ConnectableStatement(
-            PDGVertex(file, line, col, condVertexName, VertexKind.ControlFlow, clocked, Seq(), relatedSignal, condition=None),
+            PDGVertex(file, line, col, nodeName, VertexKind.ControlFlow, clocked, Seq(), relatedSignal, condition=None),
             sourceModule,
-            dependencies = conditionalDep,
-            provides = conditionSymbols,
+            dependencies = conditionalDep ++ Vector(predDependency),
+            provides = Vector(nestedConditionalDependency),
             clocked = clocked
           ),
           condVertexName,
@@ -610,12 +627,13 @@ object PdgBuilder {
         val flipped = baseType.isInput
         val isIO = !baseType.isDirectionLess
         val kind = if (isIO) VertexKind.IO else VertexKind.Definition
+        val nodeName = if (isIO) s"IO ${baseType.name}" else s"def ${baseType.name}"
         val dependency = RegularDependency(baseType.name, "", flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
         val relatedSignal = Some((baseType.name, ""))
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, col, baseType.name, kind, clocked, Seq(), relatedSignal, assignsTo = Some(baseType.name)),
+            PDGVertex(file, line, col, nodeName, kind, clocked, Seq(), relatedSignal, assignsTo = Some(baseType.name)),
             sourceModule,
             dependencies = if (!flipped) Seq(dependency) else Seq(),
             provides = if (flipped) Seq(dependency) else Seq(),
