@@ -631,12 +631,13 @@ object PdgBuilder {
         val dependency = RegularDependency(baseType.name, "", flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
         val relatedSignal = Some((baseType.name, ""))
+        val isProvider = !isIO || flipped
         val cfg = CFGStatement(
           ConnectableStatement(
             PDGVertex(file, line, col, nodeName, kind, clocked, Seq(), relatedSignal, assignsTo = Some(baseType.name)),
             sourceModule,
-            dependencies = if (!flipped) Seq(dependency) else Seq(),
-            provides = if (flipped) Seq(dependency) else Seq(),
+            dependencies = if (!isProvider) Seq(dependency) else Seq(),
+            provides = if (isProvider) Seq(dependency) else Seq(),
             clocked = clocked
           )
         )
