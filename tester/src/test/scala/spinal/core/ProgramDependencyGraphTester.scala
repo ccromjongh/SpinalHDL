@@ -46,35 +46,38 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
     svInterface = true,
     genLineComments = true,
     genPDG = true,
-    dumpWave = DumpWaveConfig(10, "GCD.vcd"),
     phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
       { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
     )
   )
 
   SimConfig.withConfig(config).withVcdWave.compile(comp).doSim { dut =>
-    // Fork a process to generate the reset and the clock on the dut
-    dut.clockDomain.forkStimulus(period = 10)
-    // Wait for reset to be done
-    dut.clockDomain.waitSampling
+    // Fork a process to generate the clock on the dut
+    // We do not use start reset in this test
+    dut.clockDomain.forkStimulus(period = 10, resetCycles = 0)
+    // When resetCycles is 0 there is an empty clock period before the first rising edge
+    // This 5-unit sleep puts us where the falling edge normally is
+    sleep(5)
 
     dut.io.a #= 24
     dut.io.b #= 36
     dut.io.loadValues #= true
-    // This seems the easiest way to step the clock
-    dut.clockDomain.waitActiveEdge
+    dut.clockDomain.waitInactiveEdge()
     dut.io.loadValues #= false
-    dut.clockDomain.waitActiveEdgeWhere(dut.io.resultIsValid.toBoolean)
+
+    dut.clockDomain.waitInactiveEdgeWhere(dut.io.resultIsValid.toBoolean)
     assert(dut.io.resultIsValid.toBoolean == true, "Expecting to find valid result")
     assert(dut.io.result.toLong == 12, s"Result was ${dut.io.result.toLong}, expected 12")
+
     dut.io.a #= 24
     dut.io.b #= 72
-    dut.clockDomain.assertReset
+    dut.clockDomain.assertReset()
     dut.io.loadValues #= true
-    dut.clockDomain.waitActiveEdge
+    dut.clockDomain.waitInactiveEdge()
     dut.io.loadValues #= false
-    dut.clockDomain.deassertReset
-    dut.clockDomain.waitActiveEdgeWhere(dut.io.resultIsValid.toBoolean)
+    dut.clockDomain.deassertReset()
+
+    dut.clockDomain.waitInactiveEdgeWhere(dut.io.resultIsValid.toBoolean)
     assert(dut.io.resultIsValid.toBoolean == true, "Expecting to find valid result")
     assert(dut.io.result.toLong == 24, s"Result was ${dut.io.result.toLong}, expected 24")
   }
