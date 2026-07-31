@@ -29,7 +29,13 @@ object EdgeKind {
 case class PDGCondition(
     probeName: Seq[String],
     probeValue: Seq[Int]
-)
+) {
+  def toJSON: String =
+    s"""{
+       |  "probeName": [${this.probeName.mkString("\"", "\", \"", "\"")}],
+       |  "probeValue": [${this.probeValue.mkString(", ")}]
+       |}""".stripMargin
+}
 
 /**
  *
@@ -61,7 +67,37 @@ case class PDGVertex(
     isChiselStatement: Boolean = true,
     assignDelay: Int = 0,
     uid: String = UUID.randomUUID().toString
-)
+) {
+  def toJSON: String =
+    s"""{
+       |  "file": "${this.file}",
+       |  "line": ${this.line},
+       |  "char": ${this.char},
+       |  "name": "${this.name}",
+       |  "kind": "${this.kind.toString}",
+       |  "clocked": ${this.clocked},
+       |  "modulePath": [${this.modulePath.mkString("\"", "\", \"", "\"")}],
+       |  "relatedSignal": ${
+      this.relatedSignal.map { case (signalPath, fieldPath) =>
+        s"""{
+           |  "signalPath": "$signalPath",
+           |  "fieldPath": "$fieldPath"
+           |}""".stripMargin
+      }.getOrElse("null")
+    },
+       |  "assignsTo": ${this.assignsTo.map(x => s""""$x"""").getOrElse("null")},
+       |  "isChiselStatement": ${this.isChiselStatement},
+       |  "condition": ${
+      this.condition.map { c =>
+        s"""{
+           |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
+           |  "probeValue": [${c.probeValue.mkString(", ")}]
+           |}""".stripMargin
+      }.getOrElse("null")
+    },
+       |  "assignDelay": ${this.assignDelay}
+       |}""".stripMargin
+}
 
 case class PDGEdge(
     from: PDGVertex,
@@ -69,7 +105,16 @@ case class PDGEdge(
     kind: EdgeKind,
     clocked: Boolean,
     condition: Option[PDGCondition] = None
-)
+) {
+  def toJSON: String =
+    s"""{
+       |  "from": ${this.from.toJSON},
+       |  "to": ${this.to.toJSON},
+       |  "kind": "${this.kind.toString}",
+       |  "clocked": ${this.clocked},
+       |  "condition": ${this.condition.map(_.toJSON).getOrElse("null")}
+       |}""".stripMargin
+}
 
 case class PDGEdgeSerializable(
     from: Int,
@@ -77,7 +122,16 @@ case class PDGEdgeSerializable(
     kind: EdgeKind,
     clocked: Boolean,
     condition: Option[PDGCondition] = None
-)
+) {
+  def toJSON: String =
+    s"""{
+       |  "from": ${this.from},
+       |  "to": ${this.to},
+       |  "kind": "${this.kind.toString}",
+       |  "clocked": ${this.clocked},
+       |  "condition": ${this.condition.map(_.toJSON).getOrElse("null")}
+       |}""".stripMargin
+}
 
 case class ExportableCFGNode(
     stmtRef: Int, // This should be the index of the PDGVertex that references the actual statement
@@ -95,53 +149,9 @@ case class ProgramDependencyGraph(
 case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependencyGraph) {
 
   def getBytes: String = {
-    val verticesJson = graph.vertices.map { v =>
-      s"""{
-         |  "file": "${v.file}",
-         |  "line": ${v.line},
-         |  "char": ${v.char},
-         |  "name": "${v.name}",
-         |  "kind": "${v.kind.toString}",
-         |  "clocked": ${v.clocked},
-         |  "modulePath": [${v.modulePath.mkString("\"", "\", \"", "\"")}],
-         |  "relatedSignal": ${
-        v.relatedSignal.map { case (signalPath, fieldPath) =>
-          s"""{
-             |  "signalPath": "$signalPath",
-             |  "fieldPath": "$fieldPath"
-             |}""".stripMargin
-        }.getOrElse("null")
-      },
-         |  "assignsTo": ${v.assignsTo.map(x => s""""$x"""").getOrElse("null")},
-         |  "isChiselStatement": ${v.isChiselStatement},
-         |  "condition": ${
-        v.condition.map { c =>
-          s"""{
-             |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
-             |  "probeValue": [${c.probeValue.mkString(", ")}]
-             |}""".stripMargin
-        }.getOrElse("null")
-      },
-         |  "assignDelay": ${v.assignDelay}
-         |}""".stripMargin
-    }.mkString("[", ",", "]")
+    val verticesJson = graph.vertices.map(_.toJSON).mkString("[", ",", "]")
 
-    val edgesJson = graph.edges.map { e =>
-      s"""{
-         |  "from": ${e.from},
-         |  "to": ${e.to},
-         |  "kind": "${e.kind.toString}",
-         |  "clocked": ${e.clocked},
-         |  "condition": ${
-        e.condition.map { c =>
-          s"""{
-             |  "probeName": [${c.probeName.mkString("\"", "\", \"", "\"")}],
-             |  "probeValue": [${c.probeValue.mkString(", ")}]
-             |}""".stripMargin
-        }.getOrElse("null")
-      }
-         |}""".stripMargin
-    }.mkString("[", ",", "]")
+    val edgesJson = graph.edges.map(_.toJSON).mkString("[", ",", "]")
 
     val predicatesJson = graph.predicates.map { p =>
       s"""{

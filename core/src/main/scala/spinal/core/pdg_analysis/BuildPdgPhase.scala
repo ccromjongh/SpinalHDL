@@ -97,6 +97,24 @@ class BuildPdgPhase extends PhaseMisc {
     outFile.write(pdgJSON)
     outFile.close()
     println(f"PDG JSON file written to $targetPath.")
+
+    val debugJSON =
+      s"""{
+         |  "cfg": [
+         |    ${cfg.map(_.toJSON).mkString(", ")}
+         |  ],
+         |  "verts": [
+         |    ${verts.map(_.toJSON).mkString(", ")}
+         |  ],
+         |  "edges": [
+         |    ${edges.map(_.toJSON).mkString(", ")}
+         |  ]
+         |}""".stripMargin
+
+    val targetDebugPath = pc.config.targetDirectory + "/" + topLevel.definitionName + "-debug.json"
+    val outDebugFile = new java.io.FileWriter(targetDebugPath)
+    outDebugFile.write(debugJSON)
+    outDebugFile.close()
   }
 
   private def generateRandomString(length: Int): String = {
