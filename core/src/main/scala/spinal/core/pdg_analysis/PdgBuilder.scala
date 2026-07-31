@@ -130,57 +130,98 @@ object PdgBuilder {
   }
 
   // TODO: Check if an unspecified direction is possible within SpinalHDL.
-  sealed trait InferDirection
-  case object InferWrite extends InferDirection
-  case object InferRead extends InferDirection
+  sealed trait InferDirection {
+    def toJSON: String
+  }
+
+  case object InferWrite extends InferDirection {
+    def toJSON: String = "\"InferWrite\""
+  }
+
+  case object InferRead extends InferDirection {
+    def toJSON: String = "\"InferRead\""
+  }
 
   /**
    *
-   * @param vertex Definition of the symbol and its properties
-   * @param sourceModule The module that the statement is from
-   * @param dependencies The symbols that the statement depends on
-   * @param provides The symbols that the statement provides. This is used to in conjunction with the dependencies to form edges.
-   * @param clocked Is this element clocked? I.e., is it a register?
+   * @param vertex                    Definition of the symbol and its properties
+   * @param sourceModule              The module that the statement is from
+   * @param dependencies              The symbols that the statement depends on
+   * @param provides                  The symbols that the statement provides. This is used to in conjunction with the dependencies to form edges.
+   * @param clocked                   Is this element clocked? I.e., is it a register?
    * @param isInferredMemoryDirection In Chisel, memories can have an unspecified direction, which needs to be inferred
    */
   case class ConnectableStatement(
-    vertex: PDGVertex,
-    sourceModule: String,
-    dependencies: Seq[PDGDependency],
-    provides: Seq[PDGDependency],
-    clocked: Boolean,
-    isInferredMemoryDirection: Option[InferDirection] = None
-  )
+                                   vertex: PDGVertex,
+                                   sourceModule: String,
+                                   dependencies: Seq[PDGDependency],
+                                   provides: Seq[PDGDependency],
+                                   clocked: Boolean,
+                                   isInferredMemoryDirection: Option[InferDirection] = None
+                                 ) {
+    def toJSON: String = {
+      val inferDirJSON = isInferredMemoryDirection.map(_.toJSON).getOrElse("null")
+      s"""{
+         |  "vertex": ${vertex.toJSON},
+         |  "sourceModule": "$sourceModule",
+         |  "dependencies": [${dependencies.map(_.toJSON).mkString(", ")}],
+         |  "provides": [${provides.map(_.toJSON).mkString(", ")}],
+         |  "clocked": $clocked,
+         |  "isInferredMemoryDirection": $inferDirJSON
+         |}""".stripMargin
+    }
+  }
 
-  sealed trait CFGNode
+  sealed trait CFGNode {
+    def toJSON: String
+  }
 
   // The implicit assumption is that the graph is stored in a sequence and that sequential elements are connected.
   // This vastly simplifies the datastructure that is needed to store the graph and allows for easier graph generation.
   case class CFGStatement(
-    stmt: ConnectableStatement
-  ) extends CFGNode
+                           stmt: ConnectableStatement
+                         ) extends CFGNode {
+    def toJSON: String = s"""{"type": "CFGStatement", "stmt": ${stmt.toJSON}}"""
+  }
 
   /**
    * Represents a condition in the circuit in the CFG
-   * @param stmt The properties of this signal node
+   *
+   * @param stmt           The properties of this signal node
    * @param predSignalName Signal name in VCD with the value of the predicate
-   * @param hierPrefix Hierarchy prefix of signal within VCD
-   * @param left The 'true' branch of a conditional
-   * @param right The alternative branch
+   * @param hierPrefix     Hierarchy prefix of signal within VCD
+   * @param left           The 'true' branch of a conditional
+   * @param right          The alternative branch
    */
   case class CFGFork(
-    stmt: ConnectableStatement,
-    predSignalName: String,
-    hierPrefix: String,
-    left: Seq[CFGNode],
-    right: Seq[CFGNode]
-  ) extends CFGNode
+                      stmt: ConnectableStatement,
+                      predSignalName: String,
+                      hierPrefix: String,
+                      left: Seq[CFGNode],
+                      right: Seq[CFGNode]
+                    ) extends CFGNode {
+    def toJSON: String = {
+      s"""{
+         |  "type": "CFGFork",
+         |  "stmt": ${stmt.toJSON},
+         |  "predSignalName": "$predSignalName",
+         |  "hierPrefix": "$hierPrefix",
+         |  "left": [${left.map(_.toJSON).mkString(", ")}],
+         |  "right": [${right.map(_.toJSON).mkString(", ")}]
+         |}""".stripMargin
+    }
+  }
 
   sealed trait PDGDependency {
     def name = ""
+
     def rootName = ""
+
     def connectID = ""
+
     def flipped = false
+
+    def toJSON: String
 
     def joinIfNotEmpty(a: String, b: String): String = {
       if (a.nonEmpty && b.nonEmpty) s"$a.$b"
@@ -193,10 +234,10 @@ object PdgBuilder {
         RegularDependency(joinIfNotEmpty(r1.name, r2.name), r1.rootName, r1.flipped ^ r2.flipped, joinIfNotEmpty(r1.connectID, r2.connectID))
       }
       case (c1: ConditionalDependency, r1: RegularDependency) => {
-        c1.copy(name=joinIfNotEmpty(c1.name, r1.name), flipped= c1.flipped ^ r1.flipped, connectID = joinIfNotEmpty(c1.connectID,r1.connectID))
+        c1.copy(name = joinIfNotEmpty(c1.name, r1.name), flipped = c1.flipped ^ r1.flipped, connectID = joinIfNotEmpty(c1.connectID, r1.connectID))
       }
       case (r1: RegularDependency, c1: ConditionalDependency) => {
-        c1.copy(name=joinIfNotEmpty(r1.name, c1.name), flipped= c1.flipped ^ r1.flipped, rootName = r1.rootName, connectID = joinIfNotEmpty(r1.connectID,c1.connectID))
+        c1.copy(name = joinIfNotEmpty(r1.name, c1.name), flipped = c1.flipped ^ r1.flipped, rootName = r1.rootName, connectID = joinIfNotEmpty(r1.connectID, c1.connectID))
       }
       case (c1: ConditionalDependency, c2: ConditionalDependency) => {
         ConditionalDependency(
@@ -214,31 +255,65 @@ object PdgBuilder {
   // A conditional dependency in this case means a vector that is indexed dynamically: the condition is that the index signal has a certain value.
 
   case class RegularDependency(
-    override val name: String,
-    override val rootName: String,
-    // Used for flipped connections in bundles. See spec. If a connection is flipped, the signal flow direction is reversed.
-    // -> Flipped inputs become outputs, lhs becomes rhs if rhs signal is flipped.
-    // Technically, the flip direction needs to be the same for connections, however we don't need to worry, because the compiler will
-    // handle all validity checks
-    override val flipped: Boolean,
-    // The connectID is used to replicate the FIRRTL connection algorithm (see spec)
-    override val connectID: String = "",
-    isIndex: Boolean = false
-  ) extends PDGDependency
+                                override val name: String,
+                                override val rootName: String,
+                                // Used for flipped connections in bundles. See spec. If a connection is flipped, the signal flow direction is reversed.
+                                // -> Flipped inputs become outputs, lhs becomes rhs if rhs signal is flipped.
+                                // Technically, the flip direction needs to be the same for connections, however we don't need to worry, because the compiler will
+                                // handle all validity checks
+                                override val flipped: Boolean,
+                                // The connectID is used to replicate the FIRRTL connection algorithm (see spec)
+                                override val connectID: String = "",
+                                isIndex: Boolean = false
+                              ) extends PDGDependency {
+    def toJSON: String = {
+      s"""{
+         |  "type": "RegularDependency",
+         |  "name": "$name",
+         |  "rootName": "$rootName",
+         |  "flipped": $flipped,
+         |  "connectID": "$connectID",
+         |  "isIndex": $isIndex
+         |}""".stripMargin
+    }
+  }
 
   case class ConditionalDependency(
-    override val name: String,
-    override val rootName: String,
-    override val flipped: Boolean,
-    override val connectID: String,
-    conditionSignals: Seq[String],
-    conditionValues: Seq[Int]
-  ) extends PDGDependency
+                                    override val name: String,
+                                    override val rootName: String,
+                                    override val flipped: Boolean,
+                                    override val connectID: String,
+                                    conditionSignals: Seq[String],
+                                    conditionValues: Seq[Int]
+                                  ) extends PDGDependency {
+    def toJSON: String = {
+      val condSignalsJSON = conditionSignals.map(s => s""""$s"""").mkString(", ")
+      val condValuesJSON = conditionValues.mkString(", ")
+      s"""{
+         |  "type": "ConditionalDependency",
+         |  "name": "$name",
+         |  "rootName": "$rootName",
+         |  "flipped": $flipped,
+         |  "connectID": "$connectID",
+         |  "conditionSignals": [$condSignalsJSON],
+         |  "conditionValues": [$condValuesJSON]
+         |}""".stripMargin
+    }
+  }
 
-  sealed trait CompoundSignalPathNode
-  case class DynamicVectorIndex(signalName: String) extends CompoundSignalPathNode
-  case class StaticVectorIndex(idx: Int) extends CompoundSignalPathNode
-  case class BundleField(name: String) extends CompoundSignalPathNode
+  sealed trait CompoundSignalPathNode {
+    def toJSON: String
+  }
+
+  case class DynamicVectorIndex(signalName: String) extends CompoundSignalPathNode {
+    def toJSON: String = s"""{"type": "DynamicVectorIndex", "signalName": "$signalName"}"""
+  }
+  case class StaticVectorIndex(idx: Int) extends CompoundSignalPathNode {
+    def toJSON: String = s"""{"type": "StaticVectorIndex", "idx": $idx}"""
+  }
+  case class BundleField(name: String) extends CompoundSignalPathNode {
+    def toJSON: String = s"""{"type": "BundleField", "name": "$name"}"""
+  }
 
 
 
