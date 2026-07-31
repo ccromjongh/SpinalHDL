@@ -51,7 +51,7 @@ object PdgBuilder {
   def getSourceLocation(stmt: Statement): (String, Int, Int) = {
     val l = stmt.sourceLocation
     if (l != null) {
-      (l.file + ".scala", l.line, l.col)
+      (l.path, l.line, l.col)
     } else {
       ("unknown_file", 0, 0)
     }
