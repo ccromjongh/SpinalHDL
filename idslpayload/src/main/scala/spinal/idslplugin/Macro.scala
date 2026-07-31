@@ -5,7 +5,7 @@ import scala.reflect.macros.blackbox.Context
 
 
 
-class Location(val file : String, val line: Int, val col : Int){
+class Location(val file : String, val line: Int, val col : Int, val path : String){
   def fileSymbol = file.filter(_.isLetterOrDigit)
 }
 
@@ -22,6 +22,6 @@ object Location {
     val col  =  pos.column
     val file =  pos.source.toString().replace(".scala", "")
 //    val where = s"${line}"
-    reify(new Location(x.literal(file).splice, x.literal(line).splice, x.literal(col).splice))
+    reify(new Location(x.literal(file).splice, x.literal(line).splice, x.literal(col).splice, x.literal(pos.source.path).splice))
   }
 }
