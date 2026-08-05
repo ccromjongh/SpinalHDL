@@ -39,7 +39,7 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
   import spinal.core.sim._
   import spinal.sim._
 
-  def comp = new GCD()
+  def comp = GCD()
 
   val config = SpinalConfig(
     mode = SystemVerilog,
@@ -80,5 +80,42 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
     dut.clockDomain.waitInactiveEdgeWhere(dut.io.resultIsValid.toBoolean)
     assert(dut.io.resultIsValid.toBoolean == true, "Expecting to find valid result")
     assert(dut.io.result.toLong == 24, s"Result was ${dut.io.result.toLong}, expected 24")
+  }
+}
+
+case class Counter(width: Int = 8) extends Component {
+  val enable: Bool = in Bool()
+  val countOut: UInt = out UInt(width bits)
+  private val count = RegInit(U(0, width bits))
+
+  when(enable) {
+    count := count + U(1)
+  }
+  countOut := count
+}
+
+class CounterPdgTester extends SpinalAnyFunSuite {
+  import spinal.core.sim._
+  import spinal.sim._
+
+  def comp = Counter()
+
+  val config = SpinalConfig(
+    mode = SystemVerilog,
+    svInterface = true,
+    genLineComments = true,
+    genPDG = true,
+    phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
+      { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
+    )
+  )
+
+  SimConfig.withConfig(config).withVcdWave.compile(comp).doSim { dut =>
+    // Fork a process to generate the clock on the dut
+    // We do not use start reset in this test
+    dut.clockDomain.forkStimulus(period = 10, resetCycles = 0)
+
+    dut.enable #= true
+    dut.clockDomain.waitInactiveEdgeWhere(dut.countOut.toLong == 10)
   }
 }
