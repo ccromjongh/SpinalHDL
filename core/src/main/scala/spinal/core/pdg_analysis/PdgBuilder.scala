@@ -625,10 +625,21 @@ object PdgBuilder {
     Vector.empty // TODO: implement this method
   }
 
+  def isPred(expr: Expression): Boolean = {
+    expr match {
+      case b: BaseType => b.getName().startsWith("pred_")
+      case _ => false
+    }
+  }
+
   def scopeToCFG(root: ScopeStatement, sourceModule: String, condition: Option[PDGDependency]): Vector[CFGNode] = {
     var cfgNodes: Vector[CFGNode] = Vector.empty
     val conditionalDep = condition.toVector
     root.foreachStatements {
+      case assignment: InitAssignmentStatement => {
+        // We do not care about the init assignment because it is handled in the BaseType case where it checks if the register has an init assignment.
+        println(s"InitAssignment expression: ${assignment.target} = ${assignment.source} ${assignment.locationString}")
+      }
       case assignment: AssignmentStatement => {
         println(s"Assignment expression: ${assignment.target} = ${assignment.source} ${assignment.locationString}")
         val (file, line, col) = getSourceLocation(assignment)
@@ -640,7 +651,6 @@ object PdgBuilder {
           case t: BaseType => t.isReg
           case _ => false
         }
-        val sourceName = sourceSymbols.head.name
         val targetName = targetSymbols.head.name
         val relatedSignal = Some((targetName, ""))
         val cfg = CFGStatement(
@@ -680,16 +690,24 @@ object PdgBuilder {
         val rightCFG = scopeToCFG(right, sourceModule, Some(nestedConditionalDependency))
         val (file, line, col) = getSourceLocation(conditional)
         val relatedSignal = Some((condVertexName, ""))
-        val predDependency = RegularDependency(condVertexName, condVertexName, flipped = false)
+        // Acquire the name of the signal that is originally used in the condition. This is the name of the signal that is assigned to the predicate.
+        val condSourceSignal = predExpr match {
+          case s: BaseType if isPred(s) =>
+            s.dlcHead.source match {
+              case b: BaseType => b.name
+            }
+          case _ => condVertexName
+        }
+        val condDependency = RegularDependency(condSourceSignal, condSourceSignal, flipped = false)
         val cfg = CFGFork(
           ConnectableStatement(
             PDGVertex(file, line, col, nodeName, VertexKind.ControlFlow, clocked, Seq(), relatedSignal, condition=None),
             sourceModule,
-            dependencies = conditionalDep ++ Vector(predDependency),
+            dependencies = conditionalDep ++ Vector(condDependency),
             provides = Vector(nestedConditionalDependency),
             clocked = clocked
           ),
-          condVertexName,
+          condSourceSignal,
           "",
           leftCFG,
           rightCFG,
@@ -698,12 +716,16 @@ object PdgBuilder {
       }
       case baseType: BaseType => {
         val clocked = baseType.isReg
+        val isRegInit = baseType.dlcHead match {
+          case init: InitAssignmentStatement => true
+          case _ => false
+        }
         // Todo: What about inout ports?
         val flipped = baseType.isInput
         val isIO = !baseType.isDirectionLess
-        val kind = if (isIO) VertexKind.IO else VertexKind.Definition
+        val kind = if (isIO) VertexKind.IO else if (isRegInit) VertexKind.DataDefinition else VertexKind.Definition
         val nodeName = if (isIO) s"IO ${baseType.name}" else s"def ${baseType.name}"
-        val dependency = RegularDependency(baseType.name, "", flipped = flipped)
+        val dependency = RegularDependency(baseType.name, baseType.name, flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
         val relatedSignal = Some((baseType.name, ""))
         val isProvider = !isIO || flipped
@@ -737,7 +759,7 @@ object PdgBuilder {
       // This indicates a reference to some signal
       case b: BaseType => {
         println(s"${indent}BaseType: ${b.getClass}, value: $b")
-        Vector(RegularDependency(b.name, "", flipped = false))
+        Vector(RegularDependency(b.name, b.name, flipped = false))
       }
       case _ => {
         println(s"${indent}Expression type ${expr.getClass}: $expr.")
