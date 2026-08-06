@@ -140,27 +140,32 @@ class BuildPdgPhase extends PhaseMisc {
       // Todo: check if constant values are handled properly this way.
       val condition = cond.cond.asInstanceOf[Bool]
       val conditionName = condition.getName()
-      val parent = cond.parentScope
+      val isWhenSignal = "when_\\w+_l\\d+".r.findFirstIn(conditionName).isDefined
+      if (isWhenSignal) {
+        compPredMap += conditionName -> conditionName
+      } else {
+        val parent = cond.parentScope
 
-      val proxy = Bool()
-      // Important: predicates for conditional statements are *not* probes, the GUI trace app will treat them differently.
-      // This is, as I understand it, not a design choice but something that happened through the agile nature of a thesis during development.
-      // Todo: see if this can be turned into a more semantic name. I can use the conditionName, but what about duplicates?
-      val predName = "pred_" + generateRandomString(10)
-      proxy.setName(predName)
-      proxy.setRefOwner(comp)
-      proxy.parentScope = parent
-      proxy.setLocation(cond.sourceLocation)
+        val proxy = Bool()
+        // Important: predicates for conditional statements are *not* probes, the GUI trace app will treat them differently.
+        // This is, as I understand it, not a design choice but something that happened through the agile nature of a thesis during development.
+        // Todo: see if this can be turned into a more semantic name. I can use the conditionName, but what about duplicates?
+        val predName = "pred_" + generateRandomString(10)
+        proxy.setName(predName)
+        proxy.setRefOwner(comp)
+        proxy.parentScope = parent
+        proxy.setLocation(cond.sourceLocation)
 
-      val assign = DataAssignmentStatement(proxy, condition)
-      if (cond.sourceLocation != null) {
-        assign.setLocation(cond.sourceLocation)
+        val assign = DataAssignmentStatement(proxy, condition)
+        if (cond.sourceLocation != null) {
+          assign.setLocation(cond.sourceLocation)
+        }
+
+        cond.insertNext(proxy)
+        proxy.insertNext(assign)
+        cond.cond = proxy
+        compPredMap += conditionName -> predName
       }
-
-      cond.insertNext(proxy)
-      proxy.insertNext(assign)
-      cond.cond = proxy
-      compPredMap += conditionName -> predName
     }
     modulePredMap(comp.definitionName) = compPredMap
 
