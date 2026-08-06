@@ -627,8 +627,23 @@ object PdgBuilder {
 
   def isPred(expr: Expression): Boolean = {
     expr match {
-      case b: BaseType => b.getName().startsWith("pred_")
+      case b: BaseType =>
+        val name = b.getName()
+        name.startsWith("pred_") || "when_\\w+_l\\d+".r.findFirstIn(name).isDefined
       case _ => false
+    }
+  }
+
+  /// Returns the approximate code of an expression by recursively traversing the expression tree.
+  def exprString(expr: Expression): String = {
+    expr match {
+      case a: BinaryOperator => s"${exprString(a.left)} ${a.toString.split(' ')(1)} ${exprString(a.right)}"
+      case a: UnaryOperator => s"${exprString(a.source)} ${a.toString.split(' ')(0)}"
+      case l: Literal => l.toString
+      case x: SubAccess => x.toString
+        // This indicates a reference to some signal
+      case b: BaseType => b.getName()
+      case _ => expr.toString
     }
   }
 
@@ -680,34 +695,38 @@ object PdgBuilder {
           case s: BaseType => s.name
           case _ => generateRandomString(10)
         }
-        val nodeName = s"cond $condVertexName"
+        val condSourceExpression = predExpr.asInstanceOf[BaseType].dlcHead.source
+        // Acquire the name of the signal that is originally used in the condition.
+        // This is the name of the signal that is assigned to the predicate, or the predicate itself if it is a compound expression.
+        val condSourceSignalName = condSourceExpression match {
+          case b: BaseType => b.name
+          case _ => condVertexName
+        }
+        val condSourceString = condSourceExpression match {
+          case b: BaseType => b.name
+          case o: Operator =>
+            exprString(o)
+        }
+        val nodeName = s"cond $condSourceString"
+        val nestedConditionalDependency = RegularDependency(nodeName, nodeName, flipped = false)
+        val condDependencies = expressionToSymbols(condSourceExpression)
 
         val (left, right) = conditional match {
           case whenStmt: WhenStatement => (whenStmt.whenTrue, whenStmt.whenFalse)
         }
-        val nestedConditionalDependency = RegularDependency(nodeName, nodeName, flipped = false)
         val leftCFG = scopeToCFG(left, sourceModule, Some(nestedConditionalDependency))
         val rightCFG = scopeToCFG(right, sourceModule, Some(nestedConditionalDependency))
         val (file, line, col) = getSourceLocation(conditional)
         val relatedSignal = Some((condVertexName, ""))
-        // Acquire the name of the signal that is originally used in the condition. This is the name of the signal that is assigned to the predicate.
-        val condSourceSignal = predExpr match {
-          case s: BaseType if isPred(s) =>
-            s.dlcHead.source match {
-              case b: BaseType => b.name
-            }
-          case _ => condVertexName
-        }
-        val condDependency = RegularDependency(condSourceSignal, condSourceSignal, flipped = false)
         val cfg = CFGFork(
           ConnectableStatement(
             PDGVertex(file, line, col, nodeName, VertexKind.ControlFlow, clocked, Seq(), relatedSignal, condition=None),
             sourceModule,
-            dependencies = conditionalDep ++ Vector(condDependency),
+            dependencies = conditionalDep ++ condDependencies,
             provides = Vector(nestedConditionalDependency),
             clocked = clocked
           ),
-          condSourceSignal,
+          condSourceSignalName,
           "",
           leftCFG,
           rightCFG,
@@ -716,22 +735,32 @@ object PdgBuilder {
       }
       case baseType: BaseType => {
         val clocked = baseType.isReg
-        val isRegInit = baseType.dlcHead match {
-          case init: InitAssignmentStatement => true
+        val isRegInit = clocked && (baseType.dlcHead match {
+          case _: InitAssignmentStatement => true
           case _ => false
-        }
+        })
         // Todo: What about inout ports?
         val flipped = baseType.isInput
         val isIO = !baseType.isDirectionLess
+        // Normal wires are Definition, IO speaks for itself; registers *with* initialisation are DataDefinition
         val kind = if (isIO) VertexKind.IO else if (isRegInit) VertexKind.DataDefinition else VertexKind.Definition
-        val nodeName = if (isIO) s"IO ${baseType.name}" else s"def ${baseType.name}"
+        val nodeName =
+          if (isIO) s"${baseType.dirString()}put ${baseType.name}" // Becomes "input signal", "output signal", "inoutput signal"
+          else if (clocked) s"reg ${baseType.name}"
+          else s"wire ${baseType.name}"
         val dependency = RegularDependency(baseType.name, baseType.name, flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
-        val relatedSignal = Some((baseType.name, ""))
+        // Default wires are dependency providers and so are input ports. Output ports have dependencies.
         val isProvider = !isIO || flipped
+        val vertex =
+          if (clocked && !isRegInit) {
+            PDGVertex(file, line, col, nodeName, kind, clocked, Seq(), None, assignsTo = None)
+          } else {
+            PDGVertex(file, line, col, nodeName, kind, clocked, Seq(), relatedSignal = Some(baseType.name, ""), assignsTo = Some(baseType.name))
+          }
         val cfg = CFGStatement(
           ConnectableStatement(
-            PDGVertex(file, line, col, nodeName, kind, clocked, Seq(), relatedSignal, assignsTo = Some(baseType.name)),
+            vertex,
             sourceModule,
             dependencies = if (!isProvider) Seq(dependency) else Seq(),
             provides = if (isProvider) Seq(dependency) else Seq(),
