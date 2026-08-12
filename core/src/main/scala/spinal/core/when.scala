@@ -155,7 +155,7 @@ object switch {
         value.setName("switch_" + loc.fileSymbol + "_l" + loc.line, Nameable.REMOVABLE)
       }
       val globalData      = value.globalData
-      val switchStatement = new SwitchStatement(value)
+      val switchStatement = new SwitchStatement(value).setLocation(loc)
       val switchContext   = new SwitchContext(switchStatement)
 
       switchStatement.removeDuplication = !strict

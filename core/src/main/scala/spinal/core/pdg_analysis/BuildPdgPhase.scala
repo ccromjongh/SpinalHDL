@@ -4,6 +4,7 @@ import spinal.core.internals._
 import spinal.core._
 import spinal.core.fiber.Handle.initImplicit
 import spinal.core.pdg_analysis.PdgBuilder._
+import spinal.idslplugin.Location
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
@@ -126,67 +127,62 @@ class BuildPdgPhase extends PhaseMisc {
   }
 
   def createProbes(comp: Component, modulePredMap: scala.collection.mutable.HashMap[String, Map[String, String]]): Unit = {
-    val targets = ArrayBuffer[WhenStatement]()
     var compPredMap: Map[String, String] = Map.empty
 
     comp.dslBody.walkStatements {
-      case cond: WhenStatement => targets += cond
-      case _ =>
-    }
-
-    for (cond <- targets) {
-      // The condition will always be a Bool. Either it is a Bool signal in the design, or it has been replaced by a
-      // when_FileName_l123 signal, which is also Bool. The cast seems required to get the name of the signal.
-      // Todo: check if constant values are handled properly this way.
-      val condition = cond.cond.asInstanceOf[Bool]
-      val conditionName = condition.getName()
-      val isWhenSignal = "when_\\w+_l\\d+".r.findFirstIn(conditionName).isDefined
-      if (isWhenSignal) {
+      // When statements always already have a predicate. Either it is a Boolean expression, or it will have been swapped by a `when_file_l123` type proxy signal.
+      case wstmt: WhenStatement =>
+        val condition = wstmt.cond.asInstanceOf[Bool]
+        val conditionName = condition.getName()
         compPredMap += conditionName -> conditionName
-      } else {
-        val parent = cond.parentScope
-
-        val proxy = Bool()
+      case sstmt: SwitchStatement =>
         // Important: predicates for conditional statements are *not* probes, the GUI trace app will treat them differently.
         // This is, as I understand it, not a design choice but something that happened through the agile nature of a thesis during development.
         // Todo: see if this can be turned into a more semantic name. I can use the conditionName, but what about duplicates?
-        val predName = "pred_" + generateRandomString(10)
-        proxy.setName(predName)
-        proxy.setRefOwner(comp)
-        proxy.parentScope = parent
-        proxy.setLocation(cond.sourceLocation)
+        val parent = sstmt.parentScope
+        val sig = sstmt.value.asInstanceOf[BaseType]
+        val sigName = sig.name
+        for (branch <- sstmt.elements) {
+          for (branchKey <- branch.keys) {
+            val predName = "pred_" + generateRandomString(10)
+            val name: String = branchKey match {
+              case enum: EnumLiteral[_] => enum.senum.getName()
+              case bt: BaseType => bt.getName()
+            }
+            val proxy = Bool()
+            proxy.setName(predName)
+            proxy.setRefOwner(comp)
+            proxy.parentScope = parent
+            proxy.setLocation(sstmt.sourceLocation)
 
-        val assign = DataAssignmentStatement(proxy, condition)
-        if (cond.sourceLocation != null) {
-          assign.setLocation(cond.sourceLocation)
+            sig match {
+              case craft: SpinalEnumCraft[_] =>
+                comp.rework {
+                  val bitWidth = craft.getBitsWidth bits
+                  val craftSig = craft.wrapCast(Bits(bitWidth), new CastEnumToBits)
+                  craftSig.setName("enumSig_" + generateRandomString(10))
+                  branchKey match {
+                    case enum: EnumLiteral[_] =>
+                      val value = B(enum.getValue(), bitWidth)
+                      value.setName("enumLiteral_" + generateRandomString(10))
+                      val someSigValue = value === craftSig
+                      someSigValue.setName("enumComp_" + generateRandomString(10))
+                      print(someSigValue)
+                      val litSig = enum.senum.craft(craft.getEncoding)
+                      litSig.setName("enumCraft_" + generateRandomString(10))
+                      val secondComp = litSig.isEqualTo(craft)
+                      secondComp.setName("enumComp2_" + generateRandomString(10))
+                  }
+                }
+            }
+
+            compPredMap += name -> predName
+          }
         }
-
-        cond.insertNext(proxy)
-        proxy.insertNext(assign)
-        cond.cond = proxy
-        compPredMap += conditionName -> predName
-      }
+      case _ =>
     }
     modulePredMap(comp.definitionName) = compPredMap
 
     comp.children.foreach(_.walkComponents(nested => createProbes(nested, modulePredMap)))
-
-    /*var compPredMap: Map[String, String] = Map.empty
-    comp.dslBody.walkStatements {
-      case cond: WhenStatement => {
-        val condition = cond.cond
-        val isPred = condition.name.startsWith("when_")
-        if (isPred) {
-          compPredMap += condition.name -> condition.name
-        } else {
-          val newStatement = Bool()
-          newStatement := condition
-          val name = "probe_" + generateRandomString(10)
-          newStatement.setName(name)
-          compPredMap += name -> name
-          cond.parentScope.head.insertNext(newStatement)
-        }
-      }
-    }*/
   }
 }
