@@ -84,14 +84,25 @@ class ProgramDependencyGraphTester extends SpinalAnyFunSuite {
 }
 
 case class Counter(width: Int = 8) extends Component {
-  val enable: Bool = in Bool()
-  val countOut: UInt = out UInt(width bits)
-  private val count = RegInit(U(0, width bits))
-
-  when(enable) {
-    count := count + U(1)
+  val io = new Bundle {
+    val enable: Bool = in Bool()
+    val loadValue: Bool = in Bool()
+    val newValue: UInt = in UInt(width bits)
+    val maximum: UInt = in UInt(width bits)
+    val countOut: UInt = out UInt(width bits)
   }
-  countOut := count
+  private val count = Reg(UInt(width bits))
+
+  when(io.enable) {
+    count := Mux(count < io.maximum, count + U(1), U(0))
+  }.otherwise {
+    count := count - U(1)
+  }
+
+  when(io.loadValue) {
+    count := io.newValue
+  }
+  io.countOut := count
 }
 
 class CounterPdgTester extends SpinalAnyFunSuite {
@@ -115,8 +126,16 @@ class CounterPdgTester extends SpinalAnyFunSuite {
     // We do not use start reset in this test
     dut.clockDomain.forkStimulus(period = 10, resetCycles = 0)
 
-    dut.enable #= true
-    dut.clockDomain.waitInactiveEdgeWhere(dut.countOut.toLong == 10)
+    dut.io.enable #= true
+    dut.io.maximum #= 20
+    dut.clockDomain.waitInactiveEdge(3)
+    dut.io.loadValue #= true
+    dut.io.newValue #= 1
+    dut.clockDomain.waitInactiveEdge()
+    dut.io.loadValue #= false
+    dut.clockDomain.waitInactiveEdgeWhere(dut.io.countOut.toLong == 10)
+  }
+}
 
 case class DetectTwoOnes() extends Component {
   val io = new Bundle {
