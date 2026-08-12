@@ -650,6 +650,7 @@ object PdgBuilder {
   def scopeToCFG(root: ScopeStatement, sourceModule: String, condition: Option[PDGDependency]): Vector[CFGNode] = {
     var cfgNodes: Vector[CFGNode] = Vector.empty
     val conditionalDep = condition.toVector
+
     root.foreachStatements {
       case assignment: InitAssignmentStatement => {
         // We do not care about the init assignment because it is handled in the BaseType case where it checks if the register has an init assignment.
@@ -658,46 +659,75 @@ object PdgBuilder {
       case assignment: AssignmentStatement => {
         println(s"Assignment expression: ${assignment.target} = ${assignment.source} ${assignment.locationString}")
         val (file, line, col) = getSourceLocation(assignment)
-        val sourceSymbols = expressionToSymbols(assignment.source)
-        val targetSymbols = expressionToSymbols(assignment.target)
         val target = assignment.target
+        val targetSymbols = expressionToSymbols(target)
         // We must know whether the target is a register or not, to let the slicer know that this dependency is spread over time.
-        val isReg = target match {
-          case t: BaseType => t.isReg
-          case _ => false
-        }
+        val isReg = target.asInstanceOf[BaseType].isReg
         val targetName = targetSymbols.head.name
         val relatedSignal = Some((targetName, ""))
-        val cfg = CFGStatement(
-          ConnectableStatement(
-            PDGVertex(file, line, col, targetName, VertexKind.Connection, isReg, Seq(), relatedSignal, assignsTo = Some(targetName)),
-            sourceModule,
-            dependencies = sourceSymbols ++ conditionalDep,
-            provides = targetSymbols,
-            clocked = isReg
+
+        def cfgWithDependencies(symbols: Vector[PDGDependency]): CFGStatement = {
+          CFGStatement(
+            ConnectableStatement(
+              PDGVertex(file, line, col, targetName, VertexKind.Connection, isReg, Seq(), relatedSignal, assignsTo = Some(targetName)),
+              sourceModule,
+              dependencies = symbols,
+              provides = targetSymbols,
+              clocked = isReg
+            )
           )
-        )
+        }
+
+        val cfg: CFGNode = assignment.source match {
+          case binMult: BinaryMultiplexer =>
+            val condProxy = binMult.cond.asInstanceOf[Bool]
+            val originalCond = condProxy.dlcHead.source
+            val condDependencies = expressionToSymbols(originalCond)
+            val nodeName = s"cond ${exprString(originalCond)}"
+            val nestedConditionalDependency = Vector(RegularDependency(nodeName, nodeName, flipped = false))
+
+            val sourceSymbolsWhenTrue = expressionToSymbols(binMult.whenTrue) ++ nestedConditionalDependency
+            val sourceSymbolsWhenFalse = expressionToSymbols(binMult.whenFalse) ++ nestedConditionalDependency
+            val leftCFG = cfgWithDependencies(sourceSymbolsWhenTrue)
+            val rightCFG = cfgWithDependencies(sourceSymbolsWhenFalse)
+
+            val relatedSignal = Some((condProxy.name, ""))
+
+            CFGFork(
+              ConnectableStatement(
+                PDGVertex(file, line, col, nodeName, VertexKind.ControlFlow, clocked = false, Seq(), relatedSignal, condition = None),
+                sourceModule,
+                dependencies = conditionalDep ++ condDependencies,
+                provides = nestedConditionalDependency,
+                clocked = false
+              ),
+              condProxy.name,
+              "",
+              Seq(leftCFG),
+              Seq(rightCFG),
+            )
+          case switchMult: Multiplexer =>
+            // TODO
+            val sourceSymbols = expressionToSymbols(assignment.source)
+            cfgWithDependencies(sourceSymbols ++ conditionalDep)
+          case _ =>
+            val sourceSymbols = expressionToSymbols(assignment.source)
+            cfgWithDependencies(sourceSymbols ++ conditionalDep)
+        }
         cfgNodes :+= cfg
       }
       case whenStmt: WhenStatement => {
-        val predExpr = whenStmt.cond
+        val predExpr = whenStmt.cond.asInstanceOf[Bool]
         println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
         val clocked = false
-        val condVertexName = predExpr match {
-          case s: BaseType => s.name
-          case _ => generateRandomString(10)
-        }
-        val condSourceExpression = predExpr.asInstanceOf[BaseType].dlcHead.source
-        // Acquire the name of the signal that is originally used in the condition.
-        // This is the name of the signal that is assigned to the predicate, or the predicate itself if it is a compound expression.
-        val condSourceSignalName = condSourceExpression match {
-          case b: BaseType => b.name
-          case _ => condVertexName
+        val condVertexName = predExpr.name
+        val condSourceExpression = predExpr.dlcHead match {
+          case a: AssignmentStatement => a.source
+          case _ => predExpr
         }
         val condSourceString = condSourceExpression match {
           case b: BaseType => b.name
-          case o: Operator =>
-            exprString(o)
+          case o: Operator => exprString(o)
           case _ => condVertexName
         }
         val nodeName = s"cond $condSourceString"
@@ -717,7 +747,7 @@ object PdgBuilder {
             provides = Vector(nestedConditionalDependency),
             clocked = clocked
           ),
-          condSourceSignalName,
+          condVertexName,
           "",
           leftCFG,
           rightCFG,
