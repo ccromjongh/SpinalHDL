@@ -130,6 +130,29 @@ class BuildPdgPhase extends PhaseMisc {
     var compPredMap: Map[String, String] = Map.empty
 
     comp.dslBody.walkStatements {
+      case x: AssignmentStatement =>
+        x.source match {
+          case binMult: BinaryMultiplexer =>
+            val loc = x.sourceLocation
+            val predName = "mux_" + loc.fileSymbol + "_l" + loc.line
+            val proxy = Bool()
+            proxy.setName(predName)
+            proxy.setRefOwner(comp)
+            proxy.parentScope = x.parentScope
+            proxy.setLocation(x.sourceLocation)
+
+            val assign = DataAssignmentStatement(proxy, binMult.cond)
+            if (x.sourceLocation != null) {
+              assign.setLocation(x.sourceLocation)
+            }
+
+            x.insertNext(proxy)
+            proxy.insertNext(assign)
+            binMult.cond = proxy
+
+            compPredMap += predName -> predName
+          case _ =>
+        }
       // When statements always already have a predicate. Either it is a Boolean expression, or it will have been swapped by a `when_file_l123` type proxy signal.
       case wstmt: WhenStatement =>
         val condition = wstmt.cond.asInstanceOf[Bool]
