@@ -117,5 +117,67 @@ class CounterPdgTester extends SpinalAnyFunSuite {
 
     dut.enable #= true
     dut.clockDomain.waitInactiveEdgeWhere(dut.countOut.toLong == 10)
+
+case class DetectTwoOnes() extends Component {
+  val io = new Bundle {
+    val input      = in Bool()
+    val output     = out Bool()
+  }
+
+  object State extends SpinalEnum { val sNone, sOne1, sTwo1s = newElement() }
+  val state = RegInit(State.sNone)
+
+  // Tmp signal 1
+  val isOne = Bool()
+  isOne := io.input
+  // Tmp signal 2
+  val willBeTwo1s = io.input && (state === State.sOne1 || state === State.sTwo1s)
+
+  io.output := (state === State.sTwo1s)
+
+  private val one: SpinalEnumElement[State.type] = State.sOne1
+  val test = state === one
+  val test2 = Bits(2 bits)
+  test2 := B"01"
+
+  switch(state) {
+    is(State.sNone) { when(isOne) { state := State.sOne1 } }
+    is(State.sOne1) {
+      when(isOne) { state := State.sTwo1s }.otherwise { state := State.sNone }
+    }
+    is(State.sTwo1s) { when(!isOne) { state := State.sNone } }
+  }
+}
+
+class DetectTwoOnesTest extends SpinalAnyFunSuite {
+  import spinal.core.sim._
+  import spinal.sim._
+
+  def comp = DetectTwoOnes()
+
+  val config = SpinalConfig(
+    mode = SystemVerilog,
+    svInterface = true,
+    genLineComments = true,
+    genPDG = true,
+    phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
+      { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
+    )
+  )
+
+  // Inputs and expected results
+  val inputs   = Seq(0, 0, 1, 0, 1, 1, 0, 1, 1, 1)
+  val expected = Seq(0, 0, 0, 0, 0, 1, 0, 0, 1, 1)
+
+  SimConfig.withConfig(config).withVcdWave.compile(comp).doSim { dut =>
+    // Fork a process to generate the clock on the dut
+    // We do not use start reset in this test
+    dut.clockDomain.forkStimulus(period = 10, resetCycles = 0)
+
+    for (i <- inputs.indices) {
+      dut.io.input #= inputs(i).toBoolean
+      dut.clockDomain.waitInactiveEdge()
+      assert(dut.io.output.toBoolean == expected(i).toBoolean, s"In: ${inputs(i)}, expected out: ${expected(i)}, actual out: ${dut.io.output.toBoolean}")
+    }
   }
 }

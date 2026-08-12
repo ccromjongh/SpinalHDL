@@ -679,17 +679,9 @@ object PdgBuilder {
         )
         cfgNodes :+= cfg
       }
-      case conditional: TreeStatement => {
-        val predExpr = conditional match {
-          case whenStmt: WhenStatement => {
-            println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
-            whenStmt.cond
-          }
-          case switchStmt: SwitchStatement => {
-            println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
-            switchStmt.value
-          }
-        }
+      case whenStmt: WhenStatement => {
+        val predExpr = whenStmt.cond
+        println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
         val clocked = false
         val condVertexName = predExpr match {
           case s: BaseType => s.name
@@ -706,17 +698,16 @@ object PdgBuilder {
           case b: BaseType => b.name
           case o: Operator =>
             exprString(o)
+          case _ => condVertexName
         }
         val nodeName = s"cond $condSourceString"
         val nestedConditionalDependency = RegularDependency(nodeName, nodeName, flipped = false)
         val condDependencies = expressionToSymbols(condSourceExpression)
 
-        val (left, right) = conditional match {
-          case whenStmt: WhenStatement => (whenStmt.whenTrue, whenStmt.whenFalse)
-        }
+        val (left, right) = (whenStmt.whenTrue, whenStmt.whenFalse)
         val leftCFG = scopeToCFG(left, sourceModule, Some(nestedConditionalDependency))
         val rightCFG = scopeToCFG(right, sourceModule, Some(nestedConditionalDependency))
-        val (file, line, col) = getSourceLocation(conditional)
+        val (file, line, col) = getSourceLocation(whenStmt)
         val relatedSignal = Some((condVertexName, ""))
         val cfg = CFGFork(
           ConnectableStatement(
@@ -732,6 +723,16 @@ object PdgBuilder {
           rightCFG,
         )
         cfgNodes :+= cfg
+      }
+      case switchStmt: SwitchStatement => {
+        println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
+        val sig = switchStmt.value
+        for (branch <- switchStmt.elements) {
+          for (branchKey <- branch.keys) {
+            print(s"  Branch $branchKey")
+          }
+        }
+        cfgNodes
       }
       case baseType: BaseType => {
         val clocked = baseType.isReg
