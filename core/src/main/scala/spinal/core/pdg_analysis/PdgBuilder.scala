@@ -48,7 +48,7 @@ object PdgBuilder {
     case s => Seq(s)
   }
 
-  def getSourceLocation(stmt: Statement): (String, Int, Int) = {
+  def getSourceLocation(stmt: ScalaLocated): (String, Int, Int) = {
     val l = stmt.sourceLocation
     if (l != null) {
       (l.path, l.line, l.col)
@@ -226,7 +226,7 @@ object PdgBuilder {
                       predSignalName: String,
                       hierPrefix: String,
                       branches: Seq[CFGBranch],
-                      defaultBranch: Seq[CFGNode],
+                      defaultBranch: CFGBranch,
                     ) extends CFGNode {
     def toJSON: String = {
       s"""{
@@ -235,17 +235,32 @@ object PdgBuilder {
          |  "predSignalName": "$predSignalName",
          |  "hierPrefix": "$hierPrefix",
          |  "branches": [${branches.map(_.toJSON).mkString(", ")}],
-         |  "defaultBranch": [${defaultBranch.map(_.toJSON).mkString(", ")}]
+         |  "defaultBranch": [${defaultBranch.toJSON}]
          |}""".stripMargin
     }
   }
 
+  /**
+   * Represents a branch of a multi-fork
+   *
+   * @param file        File where this branch is defined
+   * @param line        Line where this branch is defined
+   * @param char        Column where this branch is defined
+   * @param matchValues List of value strings that can be matched to conclude this branch is active
+   * @param stmts       Statements within this branch
+   */
   case class CFGBranch(
+      file: String,
+      line: Int,
+      char: Int,
       matchValues: Seq[String],
       stmts: Seq[CFGNode]
                       ) {
     def toJSON: String = {
       s"""{
+         |  "file": "$file",
+         |  "line": $line,
+         |  "char": $char,
          |  "matchValues": [${matchValues.map("\"" + _ + "\"").mkString(", ")}],
          |  "branches": [${stmts.map(_.toJSON).mkString(", ")}]
          |}""".stripMargin
@@ -585,7 +600,7 @@ object PdgBuilder {
       s.flatMap {
         case CFGStatement(stmt) => Seq(stmt)
         case CFGFork(stmt, _, _, left, right) => Seq(stmt) ++ getConnectableStatements(left) ++ getConnectableStatements(right)
-        case CFGMultiFork(stmt, _, _, branches, defaultBranch) => Seq(stmt) ++ branches.flatMap(b => getConnectableStatements(b.stmts)) ++ getConnectableStatements(defaultBranch)
+        case CFGMultiFork(stmt, _, _, branches, defaultBranch) => Seq(stmt) ++ branches.flatMap(b => getConnectableStatements(b.stmts)) ++ getConnectableStatements(defaultBranch.stmts)
       }
     }
 
@@ -822,10 +837,11 @@ object PdgBuilder {
             case key => key.toString
           }
           val nestedStmts = scopeToCFG(branch.scopeStatement, sourceModule, Some(nestedConditionalDependency))
-          val cfgBranch = CFGBranch(keys, nestedStmts)
+          val (file, line, col) = getSourceLocation(branch)
+          val cfgBranch = CFGBranch(file, line, col, keys, nestedStmts)
           cfgBranch
         })
-        val defaultBranch = scopeToCFG(switchStmt.defaultScope, sourceModule, Some(nestedConditionalDependency))
+        val defaultBranch = CFGBranch("unknown_file", 0, 0, Seq(), scopeToCFG(switchStmt.defaultScope, sourceModule, Some(nestedConditionalDependency)))
         val (file, line, col) = getSourceLocation(switchStmt)
         val relatedSignal = Some((condVertexName, ""))
         val condDependencies = expressionToSymbols(condSourceExpression)
