@@ -137,8 +137,15 @@ case class ExportableCFGNode(
     stmtRef: Int, // This should be the index of the PDGVertex that references the actual statement
     predStmtRef: Option[Int], // In case the node is a fork, this reference should point to the predicate probe signal
     trueBranch: Option[Seq[ExportableCFGNode]],
-    falseBranch: Option[Seq[ExportableCFGNode]]
+    falseBranch: Option[Seq[ExportableCFGNode]],
+    branches: Option[Seq[ExportableCFGBranch]],
 )
+
+case class ExportableCFGBranch(
+    matchValues: Seq[String],
+    stmts: Seq[ExportableCFGNode]
+)
+
 case class ProgramDependencyGraph(
     vertices: Seq[PDGVertex],
     edges: Seq[PDGEdgeSerializable],
@@ -200,9 +207,17 @@ case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependency
             case Some(branch) if branch.nonEmpty => s""""falseBranch": ${getCFGJsonRecursive(branch)}"""
             case _ => ""
             }
+
+            // Conditionally include the falseBranch field if defined and non-empty
+            val branchesJson = node.branches match {
+            case Some(branches) if branches.nonEmpty => s""""branches": [${branches.map(b => {
+              s"""{"matchValues": [${b.matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": ${getCFGJsonRecursive(b.stmts)}}"""
+            }).mkString(", ")}]"""
+            case _ => ""
+            }
             
             // Collect all non-empty fields and join them with commas
-            val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson).filter(_.nonEmpty).mkString(", ")
+            val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson, branchesJson).filter(_.nonEmpty).mkString(", ")
             s"{$fields}"
         }.mkString("[", ", ", "]")
     }

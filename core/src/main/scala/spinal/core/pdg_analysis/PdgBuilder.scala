@@ -212,6 +212,43 @@ object PdgBuilder {
     }
   }
 
+  /**
+   * Represents a switch/case construct in the circuit in the CFG
+   *
+   * @param stmt           The properties of this signal node
+   * @param predSignalName Signal name in VCD with the value of the predicate
+   * @param hierPrefix     Hierarchy prefix of signal within VCD
+   * @param branches       The set of possible branches for this multi-fork
+   */
+  case class CFGMultiFork(
+                      stmt: ConnectableStatement,
+                      predSignalName: String,
+                      hierPrefix: String,
+                      branches: Seq[CFGBranch],
+                    ) extends CFGNode {
+    def toJSON: String = {
+      s"""{
+         |  "type": "CFGMultiFork",
+         |  "stmt": ${stmt.toJSON},
+         |  "predSignalName": "$predSignalName",
+         |  "hierPrefix": "$hierPrefix",
+         |  "branches": [${branches.map(_.toJSON).mkString(", ")}]
+         |}""".stripMargin
+    }
+  }
+
+  case class CFGBranch(
+      matchValues: Seq[String],
+      stmts: Seq[CFGNode]
+                      ) {
+    def toJSON: String = {
+      s"""{
+         |  "matchValues": [${matchValues.map("\"" + _ + "\"").mkString(", ")}],
+         |  "branches": [${stmts.map(_.toJSON).mkString(", ")}]
+         |}""".stripMargin
+    }
+  }
+
   sealed trait PDGDependency {
     def name = ""
 
@@ -545,6 +582,7 @@ object PdgBuilder {
       s.flatMap {
         case CFGStatement(stmt) => Seq(stmt)
         case CFGFork(stmt, _, _, left, right) => Seq(stmt) ++ getConnectableStatements(left) ++ getConnectableStatements(right)
+        case CFGMultiFork(stmt, _, _, branches) => Seq(stmt) ++ branches.flatMap(b => getConnectableStatements(b.stmts))
       }
     }
 
@@ -721,8 +759,9 @@ object PdgBuilder {
         println(s"Condition: ${whenStmt.cond}, ${whenStmt.whenTrue}, ${whenStmt.whenFalse}")
         val clocked = false
         val condVertexName = predExpr.name
-        val condSourceExpression = predExpr.dlcHead match {
-          case a: AssignmentStatement => a.source
+        // Fixme, this is not a good way to go, only IO does not have an assignment
+        val condSourceExpression: Expression = predExpr match {
+          case b: Bool if isPred(b) => predExpr.dlcHead.source
           case _ => predExpr
         }
         val condSourceString = condSourceExpression match {
@@ -756,13 +795,48 @@ object PdgBuilder {
       }
       case switchStmt: SwitchStatement => {
         println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
-        val sig = switchStmt.value
-        for (branch <- switchStmt.elements) {
-          for (branchKey <- branch.keys) {
-            print(s"  Branch $branchKey")
-          }
+        val predExpr = switchStmt.value.asInstanceOf[BaseType]
+        val condSourceExpression: Expression = predExpr match {
+          case b if isPred(b) => predExpr.dlcHead.source
+          case _ => predExpr
         }
-        cfgNodes
+
+        val condVertexName = predExpr.name
+        val condSourceString = condSourceExpression match {
+          case b: BaseType => b.name
+          case o: Operator => exprString(o)
+          case _ => condVertexName
+        }
+        val nodeName = s"cond $condSourceString"
+        val nestedConditionalDependency = RegularDependency(nodeName, nodeName, flipped = false)
+
+        val branches = switchStmt.elements.map(branch => {
+          // Todo: figure out what values are possible and how to encode them properly.
+          val keys = branch.keys.map {
+            case enum: EnumLiteral[_] => enum.getValue().toString()
+            case bt: BaseType => bt.toString
+            case key => key.toString
+          }
+          val nestedStmts = scopeToCFG(branch.scopeStatement, sourceModule, Some(nestedConditionalDependency))
+          val cfgBranch = CFGBranch(keys, nestedStmts)
+          cfgBranch
+        })
+        val (file, line, col) = getSourceLocation(switchStmt)
+        val relatedSignal = Some((condVertexName, ""))
+        val condDependencies = expressionToSymbols(condSourceExpression)
+        val cfg = CFGMultiFork(
+          ConnectableStatement(
+            PDGVertex(file, line, col, nodeName, VertexKind.ControlFlow, clocked = false, Seq(), relatedSignal, condition=None),
+            sourceModule,
+            dependencies = conditionalDep ++ condDependencies,
+            provides = Vector(nestedConditionalDependency),
+            clocked = false
+          ),
+          predSignalName = condVertexName,
+          hierPrefix = "",
+          branches = branches
+        )
+        cfgNodes :+= cfg
       }
       case baseType: BaseType => {
         val clocked = baseType.isReg
@@ -811,6 +885,9 @@ object PdgBuilder {
     val symbols: Vector[PDGDependency] = expr match {
       case a: BinaryOperator => expressionToSymbols(a.left, depth+1) ++ expressionToSymbols(a.right, depth+1)
       case a: UnaryOperator => expressionToSymbols(a.source)
+//      case e: EnumLiteral[_] =>
+//        val baseEnum = e.senum
+//        Vector(RegularDependency(baseEnum.name, baseEnum.name, flipped = false))
       case l: Literal => Vector.empty
       case x: SubAccess => {
         println(s"${indent}SubAccess: ${x.getClass}, value: $x")
