@@ -139,6 +139,7 @@ case class ExportableCFGNode(
     trueBranch: Option[Seq[ExportableCFGNode]],
     falseBranch: Option[Seq[ExportableCFGNode]],
     branches: Option[Seq[ExportableCFGBranch]],
+    defaultBranch: Option[Seq[ExportableCFGNode]],
 )
 
 case class ExportableCFGBranch(
@@ -201,23 +202,29 @@ case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependency
             case Some(branch) if branch.nonEmpty => s""""trueBranch": ${getCFGJsonRecursive(branch)}"""
             case _ => ""
             }
-            
+
             // Conditionally include the falseBranch field if defined and non-empty
             val falseBranchJson = node.falseBranch match {
             case Some(branch) if branch.nonEmpty => s""""falseBranch": ${getCFGJsonRecursive(branch)}"""
             case _ => ""
             }
 
-            // Conditionally include the falseBranch field if defined and non-empty
+            // Conditionally include the branches field if defined and non-empty
             val branchesJson = node.branches match {
             case Some(branches) if branches.nonEmpty => s""""branches": [${branches.map(b => {
               s"""{"matchValues": [${b.matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": ${getCFGJsonRecursive(b.stmts)}}"""
             }).mkString(", ")}]"""
             case _ => ""
             }
+
+          // Conditionally include the falseBranch field if defined and non-empty
+          val defaultBranchJson = node.defaultBranch match {
+            case Some(defaultBranch) if defaultBranch.nonEmpty => s""""defaultBranch": ${getCFGJsonRecursive(defaultBranch)}"""
+            case _ => ""
+          }
             
             // Collect all non-empty fields and join them with commas
-            val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson, branchesJson).filter(_.nonEmpty).mkString(", ")
+            val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson, branchesJson, defaultBranchJson).filter(_.nonEmpty).mkString(", ")
             s"{$fields}"
         }.mkString("[", ", ", "]")
     }
