@@ -597,6 +597,13 @@ trait Nameable extends OwnableRef with ContextUser {
 
 trait ScalaLocated extends GlobalDataUser {
 
+  var sourceLocation: Location = null
+
+  def setLocation(loc: Location): this.type ={
+    if(globalData.config.genPDG) sourceLocation = loc
+    this
+  }
+
   var scalaTrace = if(globalData == null || !globalData.scalaLocatedEnable || (DslScopeStack.get != null && !globalData.scalaLocatedComponents.contains(DslScopeStack.get.component.getClass))) {
     null
   } else {

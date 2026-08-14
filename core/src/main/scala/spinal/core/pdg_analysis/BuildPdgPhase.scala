@@ -97,8 +97,9 @@ class BuildPdgPhase extends PhaseMisc {
                 predicateVerts.append(PDGVertex(stmt.vertex.file, stmt.vertex.line, stmt.vertex.char, hierPredNodeName, VertexKind.DataDefinition, false, Seq.empty))
               }
 
-              val branchNodes = branches.map(branch => ExportableCFGBranch(branch.matchValues, makeCFGExportable(branch.stmts)))
-              Seq(ExportableCFGNode(vert, Some(predIdx), None, None, Some(branchNodes), Some(makeCFGExportable(defaultBranch))))
+              val branchNodes = branches.map(branch => ExportableCFGBranch(branch.file, branch.line, branch.char, branch.matchValues, makeCFGExportable(branch.stmts)))
+              val defaultBranchNode = ExportableCFGBranch(defaultBranch.file, defaultBranch.line, defaultBranch.char, defaultBranch.matchValues, makeCFGExportable(defaultBranch.stmts))
+              Seq(ExportableCFGNode(vert, Some(predIdx), None, None, Some(branchNodes), Some(defaultBranchNode)))
             }
           }
         }

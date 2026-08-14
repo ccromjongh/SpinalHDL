@@ -173,13 +173,13 @@ object switch {
   */
 object is {
 
-  def apply(value: Any, values:  Any*)(block: => Unit): Unit = list((value +: values).iterator)(block)
+  def apply(value: Any, values:  Any*)(block: => Unit)(implicit loc : Location): Unit = list((value +: values).iterator)(block)(loc)
 
-  def list(values: Iterator[Any])(block: => Unit): Unit = {
+  def list(values: Iterator[Any])(block: => Unit)(implicit loc : Location): Unit = {
 
     val globalData    = GlobalData.get
     val switchContext = SwitchStack.get
-    val switchElement = new SwitchStatementElement(ArrayBuffer[Expression](), new ScopeStatement(switchContext.statement))
+    val switchElement = new SwitchStatementElement(ArrayBuffer[Expression](), new ScopeStatement(switchContext.statement)).setLocation(loc)
     val switchValue   = switchContext.statement.value
 
     def onBaseType(value : BaseType): Unit = {

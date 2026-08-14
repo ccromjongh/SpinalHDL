@@ -139,13 +139,69 @@ case class ExportableCFGNode(
     trueBranch: Option[Seq[ExportableCFGNode]],
     falseBranch: Option[Seq[ExportableCFGNode]],
     branches: Option[Seq[ExportableCFGBranch]],
-    defaultBranch: Option[Seq[ExportableCFGNode]],
-)
+    defaultBranch: Option[ExportableCFGBranch],
+) {
+  def toJSON: String = {
+    // Always include the stmtRef field
+    val stmtRefJson = s""""stmtRef": ${stmtRef}"""
 
+    // Conditionally include the predStmtRef field if defined
+    val predStmtRefJson = predStmtRef match {
+      case Some(pred) => s""""predStmtRef": $pred"""
+      case _ => ""
+    }
+
+    // Conditionally include the trueBranch field if defined and non-empty
+    val trueBranchJson = trueBranch match {
+      case Some(branch) if branch.nonEmpty => s""""trueBranch": [${branch.map(_.toJSON).mkString(", ")}]"""
+      case _ => ""
+    }
+
+    // Conditionally include the falseBranch field if defined and non-empty
+    val falseBranchJson = falseBranch match {
+      case Some(branch) if branch.nonEmpty => s""""falseBranch": [${branch.map(_.toJSON).mkString(", ")}]"""
+      case _ => ""
+    }
+
+    // Conditionally include the branches field if defined and non-empty
+    val branchesJson = branches match {
+      case Some(branches) if branches.nonEmpty => s""""branches": [${
+        branches.map(b => b.toJSON).mkString(", ")
+      }]"""
+      case _ => ""
+    }
+
+    // Conditionally include the falseBranch field if defined and non-empty
+    val defaultBranchJson = defaultBranch match {
+      case Some(defaultBranch) if defaultBranch.stmts.nonEmpty => s""""defaultBranch": ${defaultBranch.toJSON}"""
+      case _ => ""
+    }
+
+    // Collect all non-empty fields and join them with commas
+    val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson, branchesJson, defaultBranchJson).filter(_.nonEmpty).mkString(", ")
+    s"{$fields}"
+  }
+}
+
+/**
+ * Exportable version of [[PdgBuilder.CFGBranch]]
+ *
+ * @param file        File where this branch is defined
+ * @param line        Line where this branch is defined
+ * @param char        Column where this branch is defined
+ * @param matchValues List of value strings that can be matched to conclude this branch is active
+ * @param stmts       Statements within this branch
+ */
 case class ExportableCFGBranch(
+    file: String,
+    line: Int,
+    char: Int,
     matchValues: Seq[String],
     stmts: Seq[ExportableCFGNode]
-)
+) {
+  def toJSON: String =
+    s"""{"file": "${file}", "line": ${line}, "col": ${char}, "matchValues": [${matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": [${stmts.map(_.toJSON).mkString(", ")}]}"""
+}
 
 case class ProgramDependencyGraph(
     vertices: Seq[PDGVertex],
@@ -173,7 +229,7 @@ case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependency
          |}""".stripMargin
     }.mkString("[", ",", "]")
 
-    val cfgJson = getCFGJsonRecursive(graph.cfg)
+    val cfgJson = graph.cfg.map(_.toJSON).mkString("[", ", ", "]")
 
     val outString =
       s"""{
@@ -185,47 +241,4 @@ case class ProgramDependencyGraphJson(filename: String, graph: ProgramDependency
 
     outString
   }
-
-    private def getCFGJsonRecursive(nodes: Seq[ExportableCFGNode]): String = {
-        nodes.map { node =>
-            // Always include the stmtRef field
-            val stmtRefJson = s""""stmtRef": ${node.stmtRef}"""
-
-            // Conditionally include the predStmtRef field if defined
-            val predStmtRefJson = node.predStmtRef match {
-                case Some(pred) => s""""predStmtRef": $pred"""
-                case _ => ""
-            }
-            
-            // Conditionally include the trueBranch field if defined and non-empty
-            val trueBranchJson = node.trueBranch match {
-            case Some(branch) if branch.nonEmpty => s""""trueBranch": ${getCFGJsonRecursive(branch)}"""
-            case _ => ""
-            }
-
-            // Conditionally include the falseBranch field if defined and non-empty
-            val falseBranchJson = node.falseBranch match {
-            case Some(branch) if branch.nonEmpty => s""""falseBranch": ${getCFGJsonRecursive(branch)}"""
-            case _ => ""
-            }
-
-            // Conditionally include the branches field if defined and non-empty
-            val branchesJson = node.branches match {
-            case Some(branches) if branches.nonEmpty => s""""branches": [${branches.map(b => {
-              s"""{"matchValues": [${b.matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": ${getCFGJsonRecursive(b.stmts)}}"""
-            }).mkString(", ")}]"""
-            case _ => ""
-            }
-
-          // Conditionally include the falseBranch field if defined and non-empty
-          val defaultBranchJson = node.defaultBranch match {
-            case Some(defaultBranch) if defaultBranch.nonEmpty => s""""defaultBranch": ${getCFGJsonRecursive(defaultBranch)}"""
-            case _ => ""
-          }
-            
-            // Collect all non-empty fields and join them with commas
-            val fields = Seq(stmtRefJson, predStmtRefJson, trueBranchJson, falseBranchJson, branchesJson, defaultBranchJson).filter(_.nonEmpty).mkString(", ")
-            s"{$fields}"
-        }.mkString("[", ", ", "]")
-    }
 }
