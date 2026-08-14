@@ -156,7 +156,7 @@ class SpinalEnumCraft[T <: SpinalEnum](var spinalEnum: SpinalEnum) extends BaseT
 
   private[core] def assertSameType(than: SpinalEnumCraft[_]): Unit = if (spinalEnum != than.spinalEnum) SpinalError("Enum is assigned by a incompatible enum")
 
-  def :=(that: SpinalEnumElement[T]): Unit = new DataPimper(this) := that.craft()
+  def :=(that: SpinalEnumElement[T])(implicit loc: Location): Unit = new DataPimper(this) := that.craft()
   def ===(that: SpinalEnumElement[T]): Bool = this === that.craft()
   def =/=(that: SpinalEnumElement[T]): Bool = this =/= that.craft()
 

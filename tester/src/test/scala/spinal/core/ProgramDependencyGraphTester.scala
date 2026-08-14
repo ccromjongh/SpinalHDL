@@ -1,4 +1,4 @@
-package spinal.core
+package spinal.core.PDG
 
 import spinal.core._
 import spinal.core.internals._
@@ -160,11 +160,23 @@ case class DetectTwoOnes() extends Component {
   test2 := B"01"
 
   switch(state) {
-    is(State.sNone) { when(isOne) { state := State.sOne1 } }
-    is(State.sOne1) {
-      when(isOne) { state := State.sTwo1s }.otherwise { state := State.sNone }
+    is(State.sNone) {
+      when(isOne) {
+        state := State.sOne1
+      }
     }
-    is(State.sTwo1s) { when(!isOne) { state := State.sNone } }
+    is(State.sOne1) {
+      when(isOne) {
+        state := State.sTwo1s
+      }.otherwise {
+        state := State.sNone
+      }
+    }
+    is(State.sTwo1s) {
+      when(!isOne) {
+        state := State.sNone
+      }
+    }
   }
 }
 

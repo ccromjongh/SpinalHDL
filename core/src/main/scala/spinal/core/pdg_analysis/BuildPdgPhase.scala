@@ -55,16 +55,15 @@ class BuildPdgPhase extends PhaseMisc {
           // but they are still present in the CFG. This makes sure they don't make it to the final version
           vertMap.get(stmt.vertex) match {
             case None => Seq.empty
-            case Some(vert) => Seq(ExportableCFGNode(vert, None, None, None))
+            case Some(vert) => Seq(ExportableCFGNode(vert, None, None, None, None))
           }
         }
         case CFGFork(stmt, predSignalName, hierPrefix, left, right) => {
           vertMap.get(stmt.vertex) match {
             case None => Seq.empty
             case Some(vert) => {
-              // First, get the name of the newly inserted probe node
+              // First, get the name of the probe node
               val predNodeName = modulePredMap(stmt.sourceModule)(predSignalName)
-              // dontTouchAnnos.append(DontTouchAnnotation(ComponentName(predNodeName, ModuleName(stmt.sourceModule, CircuitName(circuit.main)))))
 
               // Now, we convert the relative name to a hierarchical name
               val hierPredNodeName = prefixSymbol(predNodeName, hierPrefix)
@@ -77,7 +76,29 @@ class BuildPdgPhase extends PhaseMisc {
               }
 //              var predIdx = 0
 
-              Seq(ExportableCFGNode(vert, Some(predIdx), Some(makeCFGExportable(left)), Some(makeCFGExportable(right))))
+              Seq(ExportableCFGNode(vert, Some(predIdx), Some(makeCFGExportable(left)), Some(makeCFGExportable(right)), None))
+            }
+          }
+        }
+        case CFGMultiFork(stmt, predSignalName, hierPrefix, branches) => {
+          vertMap.get(stmt.vertex) match {
+            case None => Seq.empty
+            case Some(vert) => {
+              // First, get the name of the probe node
+              val predNodeName = modulePredMap(stmt.sourceModule)(predSignalName)
+
+              // Now, we convert the relative name to a hierarchical name
+              val hierPredNodeName = prefixSymbol(predNodeName, hierPrefix)
+
+              // Insert it into the list of statements, or if it already exists, get the index
+              var predIdx = predicateVerts.indexWhere(v => v.name == hierPredNodeName)
+              if (predIdx == -1) {
+                predIdx = predicateVerts.length
+                predicateVerts.append(PDGVertex(stmt.vertex.file, stmt.vertex.line, stmt.vertex.char, hierPredNodeName, VertexKind.DataDefinition, false, Seq.empty))
+              }
+
+              val branchNodes = branches.map(branch => ExportableCFGBranch(branch.matchValues, makeCFGExportable(branch.stmts)))
+              Seq(ExportableCFGNode(vert, Some(predIdx), None, None, Some(branchNodes)))
             }
           }
         }
@@ -159,6 +180,10 @@ class BuildPdgPhase extends PhaseMisc {
         val conditionName = condition.getName()
         compPredMap += conditionName -> conditionName
       case sstmt: SwitchStatement =>
+        val condition = sstmt.value.asInstanceOf[BaseType]
+        val conditionName = condition.getName()
+        compPredMap += conditionName -> conditionName
+      /*case sstmt: SwitchStatement =>
         // Important: predicates for conditional statements are *not* probes, the GUI trace app will treat them differently.
         // This is, as I understand it, not a design choice but something that happened through the agile nature of a thesis during development.
         // Todo: see if this can be turned into a more semantic name. I can use the conditionName, but what about duplicates?
@@ -201,7 +226,7 @@ class BuildPdgPhase extends PhaseMisc {
 
             compPredMap += name -> predName
           }
-        }
+        }*/
       case _ =>
     }
     modulePredMap(comp.definitionName) = compPredMap
