@@ -219,12 +219,14 @@ object PdgBuilder {
    * @param predSignalName Signal name in VCD with the value of the predicate
    * @param hierPrefix     Hierarchy prefix of signal within VCD
    * @param branches       The set of possible branches for this multi-fork
+   * @param defaultBranch  CFG branch taken when no other branch matches
    */
   case class CFGMultiFork(
                       stmt: ConnectableStatement,
                       predSignalName: String,
                       hierPrefix: String,
                       branches: Seq[CFGBranch],
+                      defaultBranch: Seq[CFGNode],
                     ) extends CFGNode {
     def toJSON: String = {
       s"""{
@@ -232,7 +234,8 @@ object PdgBuilder {
          |  "stmt": ${stmt.toJSON},
          |  "predSignalName": "$predSignalName",
          |  "hierPrefix": "$hierPrefix",
-         |  "branches": [${branches.map(_.toJSON).mkString(", ")}]
+         |  "branches": [${branches.map(_.toJSON).mkString(", ")}],
+         |  "defaultBranch": [${defaultBranch.map(_.toJSON).mkString(", ")}]
          |}""".stripMargin
     }
   }
@@ -582,7 +585,7 @@ object PdgBuilder {
       s.flatMap {
         case CFGStatement(stmt) => Seq(stmt)
         case CFGFork(stmt, _, _, left, right) => Seq(stmt) ++ getConnectableStatements(left) ++ getConnectableStatements(right)
-        case CFGMultiFork(stmt, _, _, branches) => Seq(stmt) ++ branches.flatMap(b => getConnectableStatements(b.stmts))
+        case CFGMultiFork(stmt, _, _, branches, defaultBranch) => Seq(stmt) ++ branches.flatMap(b => getConnectableStatements(b.stmts)) ++ getConnectableStatements(defaultBranch)
       }
     }
 
@@ -796,6 +799,7 @@ object PdgBuilder {
       case switchStmt: SwitchStatement => {
         println(s"Switch value: ${switchStmt.value}, cases: ${switchStmt.elements.map(c => (c.keys, c.scopeStatement))}, default: ${switchStmt.defaultScope}")
         val predExpr = switchStmt.value.asInstanceOf[BaseType]
+        val bitsWidth = predExpr.getBitsWidth
         val condSourceExpression: Expression = predExpr match {
           case b if isPred(b) => predExpr.dlcHead.source
           case _ => predExpr
@@ -813,7 +817,7 @@ object PdgBuilder {
         val branches = switchStmt.elements.map(branch => {
           // Todo: figure out what values are possible and how to encode them properly.
           val keys = branch.keys.map {
-            case enum: EnumLiteral[_] => enum.getValue().toString()
+            case enum: EnumLiteral[_] => enum.getBitsStringOn(bitsWidth, 'x')
             case bt: BaseType => bt.toString
             case key => key.toString
           }
@@ -821,6 +825,7 @@ object PdgBuilder {
           val cfgBranch = CFGBranch(keys, nestedStmts)
           cfgBranch
         })
+        val defaultBranch = scopeToCFG(switchStmt.defaultScope, sourceModule, Some(nestedConditionalDependency))
         val (file, line, col) = getSourceLocation(switchStmt)
         val relatedSignal = Some((condVertexName, ""))
         val condDependencies = expressionToSymbols(condSourceExpression)
@@ -834,7 +839,8 @@ object PdgBuilder {
           ),
           predSignalName = condVertexName,
           hierPrefix = "",
-          branches = branches
+          branches = branches,
+          defaultBranch = defaultBranch,
         )
         cfgNodes :+= cfg
       }

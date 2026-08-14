@@ -55,7 +55,7 @@ class BuildPdgPhase extends PhaseMisc {
           // but they are still present in the CFG. This makes sure they don't make it to the final version
           vertMap.get(stmt.vertex) match {
             case None => Seq.empty
-            case Some(vert) => Seq(ExportableCFGNode(vert, None, None, None, None))
+            case Some(vert) => Seq(ExportableCFGNode(vert, None, None, None, None, None))
           }
         }
         case CFGFork(stmt, predSignalName, hierPrefix, left, right) => {
@@ -76,11 +76,11 @@ class BuildPdgPhase extends PhaseMisc {
               }
 //              var predIdx = 0
 
-              Seq(ExportableCFGNode(vert, Some(predIdx), Some(makeCFGExportable(left)), Some(makeCFGExportable(right)), None))
+              Seq(ExportableCFGNode(vert, Some(predIdx), Some(makeCFGExportable(left)), Some(makeCFGExportable(right)), None, None))
             }
           }
         }
-        case CFGMultiFork(stmt, predSignalName, hierPrefix, branches) => {
+        case CFGMultiFork(stmt, predSignalName, hierPrefix, branches, defaultBranch) => {
           vertMap.get(stmt.vertex) match {
             case None => Seq.empty
             case Some(vert) => {
@@ -98,7 +98,7 @@ class BuildPdgPhase extends PhaseMisc {
               }
 
               val branchNodes = branches.map(branch => ExportableCFGBranch(branch.matchValues, makeCFGExportable(branch.stmts)))
-              Seq(ExportableCFGNode(vert, Some(predIdx), None, None, Some(branchNodes)))
+              Seq(ExportableCFGNode(vert, Some(predIdx), None, None, Some(branchNodes), Some(makeCFGExportable(defaultBranch))))
             }
           }
         }
