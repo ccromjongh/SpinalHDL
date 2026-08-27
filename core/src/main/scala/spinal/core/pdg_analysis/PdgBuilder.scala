@@ -921,6 +921,7 @@ object PdgBuilder {
 //        val baseEnum = e.senum
 //        Vector(RegularDependency(baseEnum.name, baseEnum.name, flipped = false))
       case m: BinaryMultiplexer =>
+        // We can be sure that the condition is a Bool because a probe will have been set if it wasn't
         val condSig = m.cond.asInstanceOf[Bool]
         val condSourceExpr = condSig.dlcHead.source
         val indexDeps = expressionToSymbols(condSourceExpr, depth + 1).map {
@@ -930,6 +931,19 @@ object PdgBuilder {
         val trueConds = conditions :+ PDGCondition(condSig.name, 1)
         val falseConds = conditions :+ PDGCondition(condSig.name, 0)
         val condDeps = expressionToSymbols(m.whenTrue, depth+1, trueConds) ++ expressionToSymbols(m.whenFalse, depth+1, falseConds)
+        indexDeps ++ condDeps
+      case m: MultiplexerWidthable =>
+        // We can be sure that the condition is a BaseType because a probe will have been set if it wasn't
+        val selectSig = m.select.asInstanceOf[BaseType]
+        val condSourceExpr = selectSig.dlcHead.source
+        val indexDeps = expressionToSymbols(condSourceExpr, depth + 1).map {
+          case r: RegularDependency => r.copy(isIndex = true)
+          case d => d
+        }
+        val condDeps = m.inputs.zipWithIndex.flatMap { case (input, i) =>
+          val conds = conditions :+ PDGCondition(selectSig.name, i)
+          expressionToSymbols(input, depth+1, conds)
+        }
         indexDeps ++ condDeps
       case l: Literal => Vector.empty
       case x: SubAccess => {
