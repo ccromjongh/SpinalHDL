@@ -26,7 +26,13 @@ object EdgeKind {
     case object Index extends EdgeKind
 }
 
-case class PDGCondition(
+/**
+ * Represents a set of conditions that must be met for an edge or vert to be valid.
+ * In SigTrail, these two seq's are zipped together to a seq of tuples.
+ * @param probeName The signal names of the probes that are tested against
+ * @param probeValue The values of the respective probes that are tested against
+ */
+case class PDGConditions(
     probeName: Seq[String],
     probeValue: Seq[Int]
 ) {
@@ -54,26 +60,26 @@ case class PDGCondition(
  * @param uid To allow hashing of otherwise identical vertices
  */
 case class PDGVertex(
-    file: String,
-    line: Int,
-    char: Int,
-    name: String,
-    kind: VertexKind,
-    clocked: Boolean,
-    modulePath: Seq[String],
-    relatedSignal: Option[(String, String)] = None,
-    condition: Option[PDGCondition] = None,
-    assignsTo: Option[String] = None,
-    isChiselStatement: Boolean = true,
-    assignDelay: Int = 0,
-    uid: String = UUID.randomUUID().toString
+                      file: String,
+                      line: Int,
+                      char: Int,
+                      name: String,
+                      kind: VertexKind,
+                      clocked: Boolean,
+                      modulePath: Seq[String],
+                      relatedSignal: Option[(String, String)] = None,
+                      condition: Option[PDGConditions] = None,
+                      assignsTo: Option[String] = None,
+                      isChiselStatement: Boolean = true,
+                      assignDelay: Int = 0,
+                      uid: String = UUID.randomUUID().toString
 ) {
   def toJSON: String =
     s"""{
        |  "file": "${this.file}",
        |  "line": ${this.line},
        |  "char": ${this.char},
-       |  "name": "${this.name}",
+       |  "name": "${this.name.replace("\"", "\\\"")}",
        |  "kind": "${this.kind.toString}",
        |  "clocked": ${this.clocked},
        |  "modulePath": [${this.modulePath.mkString("\"", "\", \"", "\"")}],
@@ -104,7 +110,7 @@ case class PDGEdge(
     to: PDGVertex,
     kind: EdgeKind,
     clocked: Boolean,
-    condition: Option[PDGCondition] = None
+    condition: Option[PDGConditions] = None
 ) {
   def toJSON: String =
     s"""{
@@ -121,7 +127,7 @@ case class PDGEdgeSerializable(
     to: Int,
     kind: EdgeKind,
     clocked: Boolean,
-    condition: Option[PDGCondition] = None
+    condition: Option[PDGConditions] = None
 ) {
   def toJSON: String =
     s"""{
@@ -200,7 +206,7 @@ case class ExportableCFGBranch(
     stmts: Seq[ExportableCFGNode]
 ) {
   def toJSON: String =
-    s"""{"file": "${file}", "line": ${line}, "col": ${char}, "matchValues": [${matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": [${stmts.map(_.toJSON).mkString(", ")}]}"""
+    s"""{"file": "${file}", "line": ${line}, "char": ${char}, "matchValues": [${matchValues.map('"' + _ + '"').mkString(", ")}], "stmts": [${stmts.map(_.toJSON).mkString(", ")}]}"""
 }
 
 case class ProgramDependencyGraph(

@@ -3,6 +3,7 @@ package spinal.core.pdg_analysis
 import spinal.core.internals._
 import spinal.core._
 import spinal.core.fiber.Handle.initImplicit
+import spinal.core.internals.Operator.Formal
 import spinal.core.pdg_analysis.PdgBuilder._
 import spinal.idslplugin.Location
 
@@ -151,30 +152,51 @@ class BuildPdgPhase extends PhaseMisc {
   def createProbes(comp: Component, modulePredMap: scala.collection.mutable.HashMap[String, Map[String, String]]): Unit = {
     var compPredMap: Map[String, String] = Map.empty
 
+    val probes = scala.collection.mutable.ArrayBuffer[String]()
+
+    comp.dslBody.walkStatements(s => {
+      s.walkRemapExpressions{
+        case m: BinaryMultiplexer =>
+          m.cond = m.cond match {
+            // Fixme: this is the cleanest, not probe an already binary expression. The problem is that SigTrail will not detect this as a probe signal.
+            //  this will be fixed in the future.
+            case bool: Bool => bool
+            case cond =>
+              val loc = s.sourceLocation
+              val predName = "probe_" + loc.fileSymbol + "_l" + loc.line
+              // Ensure that we do not get name collisions by adding a suffix to the probe name if needed.
+              var predNameFinal = predName
+              var i = 1
+              while (probes.contains(predNameFinal)) {
+                predNameFinal = predName + "_" + i
+                i +=1
+              }
+              probes += predNameFinal
+              val proxy = Bool()
+              proxy.setWeakName(predNameFinal)
+              proxy.setRefOwner(comp)
+              proxy.parentScope = s.parentScope
+              proxy.setLocation(loc)
+
+              val assign = DataAssignmentStatement(proxy, m.cond)
+              if (loc != null) {
+                assign.setLocation(loc)
+              }
+
+              s.insertNext(proxy)
+              proxy.insertNext(assign)
+              // Fixme: is it really better to replace the condition with the proxy? The proxy contains the same expression,
+              //  so it should resolve to the same value, even if the condition is not actually replaced.
+              proxy
+          }
+          m
+        case m: Multiplexer =>
+          m
+        case e => e
+      }
+    })
+
     comp.dslBody.walkStatements {
-      case x: AssignmentStatement =>
-        x.source match {
-          case binMult: BinaryMultiplexer =>
-            val loc = x.sourceLocation
-            val predName = "mux_" + loc.fileSymbol + "_l" + loc.line
-            val proxy = Bool()
-            proxy.setName(predName)
-            proxy.setRefOwner(comp)
-            proxy.parentScope = x.parentScope
-            proxy.setLocation(x.sourceLocation)
-
-            val assign = DataAssignmentStatement(proxy, binMult.cond)
-            if (x.sourceLocation != null) {
-              assign.setLocation(x.sourceLocation)
-            }
-
-            x.insertNext(proxy)
-            proxy.insertNext(assign)
-            binMult.cond = proxy
-
-            compPredMap += predName -> predName
-          case _ =>
-        }
       // When statements always already have a predicate. Either it is a Boolean expression, or it will have been swapped by a `when_file_l123` type proxy signal.
       case wstmt: WhenStatement =>
         val condition = wstmt.cond.asInstanceOf[Bool]

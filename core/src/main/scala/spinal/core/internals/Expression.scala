@@ -1501,7 +1501,7 @@ private[spinal] object Multiplex {
     whenTrue.newMultiplexer(sel, whenTrue, whenFalse)
   }
 
-  def complexData[T <: Data](sel: Bool, whenTrue: T, whenFalse: T): T = {
+  def complexData[T <: Data](sel: Bool, whenTrue: T, whenFalse: T)(implicit loc: Location): T = {
 //    Vec(whenTrue, whenFalse).apply(U(sel))
 
 

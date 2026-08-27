@@ -143,6 +143,13 @@ object PdgBuilder {
   }
 
   /**
+   * Represents a conditions that must be met for an edge or vert to be valid.
+   * @param probeName Signal name of the probe
+   * @param probeValue Value of the probe for the edge or vert to be valid.
+   */
+  case class PDGCondition(probeName: String, probeValue: Int)
+
+  /**
    *
    * @param vertex                    Definition of the symbol and its properties
    * @param sourceModule              The module that the statement is from
@@ -337,9 +344,9 @@ object PdgBuilder {
                                     override val name: String,
                                     override val rootName: String,
                                     override val flipped: Boolean,
-                                    override val connectID: String,
+                                    override val connectID: String = "",
                                     conditionSignals: Seq[String],
-                                    conditionValues: Seq[Int]
+                                    conditionValues: Seq[Int],
                                   ) extends PDGDependency {
     def toJSON: String = {
       val condSignalsJSON = conditionSignals.map(s => s""""$s"""").mkString(", ")
@@ -624,7 +631,7 @@ object PdgBuilder {
         val newEdges = deps.flatMap { d =>
           val edgeCondition = d._2 match {
             case r: RegularDependency => None
-            case ConditionalDependency(_, _, _, _, conditionSignals, conditionValues) => Some(PDGCondition(conditionSignals, conditionValues))
+            case ConditionalDependency(_, _, _, _, conditionSignals, conditionValues) => Some(PDGConditions(conditionSignals, conditionValues))
           }
 
           val isIndexEdge = d._2 match {
@@ -695,6 +702,8 @@ object PdgBuilder {
     expr match {
       case a: BinaryOperator => s"${exprString(a.left)} ${a.toString.split(' ')(1)} ${exprString(a.right)}"
       case a: UnaryOperator => s"${exprString(a.source)} ${a.toString.split(' ')(0)}"
+      // Normal toString for UInt for example is `(U"00000001" 8 bits)`, a bit long for in the graph
+      case b: BitVectorLiteral => s"""${b.opName(0)}(${b.value}, ${b.bitCount})"""
       case l: Literal => l.toString
       case x: SubAccess => x.toString
         // This indicates a reference to some signal
@@ -735,7 +744,7 @@ object PdgBuilder {
         }
 
         val cfg: CFGNode = assignment.source match {
-          case binMult: BinaryMultiplexer =>
+          /*case binMult: BinaryMultiplexer =>
             val condProxy = binMult.cond.asInstanceOf[Bool]
             val originalCond = condProxy.dlcHead.source
             val condDependencies = expressionToSymbols(originalCond)
@@ -765,7 +774,7 @@ object PdgBuilder {
           case switchMult: Multiplexer =>
             // TODO
             val sourceSymbols = expressionToSymbols(assignment.source)
-            cfgWithDependencies(sourceSymbols ++ conditionalDep)
+            cfgWithDependencies(sourceSymbols ++ conditionalDep)*/
           case _ =>
             val sourceSymbols = expressionToSymbols(assignment.source)
             cfgWithDependencies(sourceSymbols ++ conditionalDep)
@@ -875,6 +884,7 @@ object PdgBuilder {
           if (isIO) s"${baseType.dirString()}put ${baseType.name}" // Becomes "input signal", "output signal", "inoutput signal"
           else if (clocked) s"reg ${baseType.name}"
           else s"wire ${baseType.name}"
+        println(s"BaseType: $nodeName")
         val dependency = RegularDependency(baseType.name, baseType.name, flipped = flipped)
         val (file, line, col) = getSourceLocation(baseType)
         // Default wires are dependency providers and so are input ports. Output ports have dependencies.
@@ -902,7 +912,7 @@ object PdgBuilder {
     cfgNodes
   }
 
-  def expressionToSymbols(expr: Expression, depth: Int = 1): Vector[PDGDependency] = {
+  def expressionToSymbols(expr: Expression, depth: Int = 1, conditions: Seq[PDGCondition] = Seq()): Vector[PDGDependency] = {
     val indent = " " * depth
     val symbols: Vector[PDGDependency] = expr match {
       case a: BinaryOperator => expressionToSymbols(a.left, depth+1) ++ expressionToSymbols(a.right, depth+1)
@@ -910,6 +920,17 @@ object PdgBuilder {
 //      case e: EnumLiteral[_] =>
 //        val baseEnum = e.senum
 //        Vector(RegularDependency(baseEnum.name, baseEnum.name, flipped = false))
+      case m: BinaryMultiplexer =>
+        val condSig = m.cond.asInstanceOf[Bool]
+        val condSourceExpr = condSig.dlcHead.source
+        val indexDeps = expressionToSymbols(condSourceExpr, depth + 1).map {
+          case r: RegularDependency => r.copy(isIndex = true)
+          case d => d
+        }
+        val trueConds = conditions :+ PDGCondition(condSig.name, 1)
+        val falseConds = conditions :+ PDGCondition(condSig.name, 0)
+        val condDeps = expressionToSymbols(m.whenTrue, depth+1, trueConds) ++ expressionToSymbols(m.whenFalse, depth+1, falseConds)
+        indexDeps ++ condDeps
       case l: Literal => Vector.empty
       case x: SubAccess => {
         println(s"${indent}SubAccess: ${x.getClass}, value: $x")
@@ -918,7 +939,11 @@ object PdgBuilder {
       // This indicates a reference to some signal
       case b: BaseType => {
         println(s"${indent}BaseType: ${b.getClass}, value: $b")
-        Vector(RegularDependency(b.name, b.name, flipped = false))
+        if (conditions.isEmpty) {
+          Vector(RegularDependency(b.name, b.name, flipped = false))
+        } else {
+          Vector(ConditionalDependency(b.name, b.name, flipped = false, conditionSignals = conditions.map(_.probeName), conditionValues = conditions.map(_.probeValue)))
+        }
       }
       case _ => {
         println(s"${indent}Expression type ${expr.getClass}: $expr.")
