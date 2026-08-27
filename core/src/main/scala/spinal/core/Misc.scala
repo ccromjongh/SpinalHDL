@@ -22,6 +22,7 @@ package spinal.core
 
 import spinal.core.fiber.AsyncThread
 import spinal.core.internals._
+import spinal.idslplugin.Location
 
 import java.lang.reflect.Field
 import scala.collection.mutable
@@ -203,19 +204,19 @@ object Cat {
   * @see [[https://spinalhdl.github.io/SpinalDoc-RTD/master/SpinalHDL/Semantic/when_switch.html#mux `Mux` documentation]]
   */
 object Mux {
-  def apply[T <: Data](sel: Bool, whenTrue: T, whenFalse: T): T = {
+  def apply[T <: Data](sel: Bool, whenTrue: T, whenFalse: T)(implicit loc: Location): T = {
     Multiplex.complexData(sel, whenTrue, whenFalse)
   }
 
-  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumElement[T], whenFalse: SpinalEnumElement[T]): SpinalEnumCraft[T] = {
+  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumElement[T], whenFalse: SpinalEnumElement[T])(implicit loc: Location): SpinalEnumCraft[T] = {
     Multiplex.complexData(sel, whenTrue(), whenFalse())
   }
 
-  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumCraft[T], whenFalse: SpinalEnumElement[T]): SpinalEnumCraft[T] = {
+  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumCraft[T], whenFalse: SpinalEnumElement[T])(implicit loc: Location): SpinalEnumCraft[T] = {
     Multiplex.complexData(sel, whenTrue, whenFalse())
   }
 
-  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumElement[T], whenFalse: SpinalEnumCraft[T]): SpinalEnumCraft[T] = {
+  def apply[T <: SpinalEnum](sel: Bool, whenTrue: SpinalEnumElement[T], whenFalse: SpinalEnumCraft[T])(implicit loc: Location): SpinalEnumCraft[T] = {
     Multiplex.complexData(sel, whenTrue(), whenFalse)
   }
 }

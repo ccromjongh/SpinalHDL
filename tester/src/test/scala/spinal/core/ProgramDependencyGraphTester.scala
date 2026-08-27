@@ -212,3 +212,69 @@ class DetectTwoOnesTest extends SpinalAnyFunSuite {
     }
   }
 }
+
+case class Exploration(width: Int = 8) extends Component {
+  val io = new Bundle {
+    val inputs = in Vec(UInt(width bits), 8)
+    val output = out UInt(width bits)
+  }
+
+  io.output := io.inputs(0)
+
+  when(io.inputs(0) === U(1)) {
+    val branch1 = Mux(
+      io.inputs(2) === U(1),
+      io.inputs(3),
+      io.inputs(4)
+    )
+    io.output := branch1
+  }.elsewhen(io.inputs(0) === U(2)) {
+    val branch2 = Mux(
+      io.inputs(2) === U(1),
+      io.inputs(3),
+      io.inputs(4)
+    )
+    io.output := io.inputs(1) + branch2
+  }.otherwise {
+    val branch3 = Mux(io.inputs(2) === U(1),
+      Mux(
+        io.inputs(5) > U(0),
+        io.inputs(3),
+        io.inputs(4)
+      ),
+      io.inputs(6)
+    )
+    branch3.setName("branch3")
+    io.output := branch3
+  }
+}
+
+class ExplorationTest extends SpinalAnyFunSuite {
+  import spinal.core.sim._
+  import spinal.sim._
+
+  def comp = Exploration()
+
+  val config = SpinalConfig(
+    mode = SystemVerilog,
+    svInterface = true,
+    genLineComments = true,
+    genPDG = true,
+    phasesInserters = ArrayBuffer[(ArrayBuffer[Phase]) => Unit](
+      { phases => phases.insert(phases.indexWhere(_.isInstanceOf[PhaseVerilog]), new BuildPdgPhase) }
+    )
+  )
+
+  SimConfig.withConfig(config).withVcdWave.compile(comp).doSim { dut =>
+    dut.clockDomain.forkStimulus(period = 10, resetCycles = 0)
+
+    dut.io.inputs(0) #= 3
+    dut.io.inputs(1) #= 9
+    dut.io.inputs(2) #= 1
+    dut.io.inputs(3) #= 5
+    dut.io.inputs(4) #= 1
+    dut.io.inputs(5) #= 1
+
+    dut.clockDomain.waitInactiveEdge()
+  }
+}
