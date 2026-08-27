@@ -190,7 +190,37 @@ class BuildPdgPhase extends PhaseMisc {
               proxy
           }
           m
-        case m: Multiplexer =>
+        case m: MultiplexerWidthable =>
+          m.select = m.select match {
+            case bt: BaseType => bt
+            case select =>
+              val loc = s.sourceLocation
+              val predName = "probe_" + loc.fileSymbol + "_l" + loc.line
+              // Ensure that we do not get name collisions by adding a suffix to the probe name if needed.
+              var predNameFinal = predName
+              var i = 1
+              while (probes.contains(predNameFinal)) {
+                predNameFinal = predName + "_" + i
+                i +=1
+              }
+              probes += predNameFinal
+              val proxy = Bits(m.getWidth bits)
+              proxy.setWeakName(predNameFinal)
+              proxy.setRefOwner(comp)
+              proxy.parentScope = s.parentScope
+              proxy.setLocation(loc)
+
+              val assign = DataAssignmentStatement(proxy, m.select)
+              if (loc != null) {
+                assign.setLocation(loc)
+              }
+
+              s.insertNext(proxy)
+              proxy.insertNext(assign)
+              // Fixme: is it really better to replace the condition with the proxy? The proxy contains the same expression,
+              //  so it should resolve to the same value, even if the condition is not actually replaced.
+              proxy
+          }
           m
         case e => e
       }
