@@ -154,6 +154,35 @@ class BuildPdgPhase extends PhaseMisc {
 
     val probes = scala.collection.mutable.ArrayBuffer[String]()
 
+    def replaceExprWithProbe[T <: BaseType](cond: Expression, factory: () => T, stmt: Statement): T = {
+      val loc = stmt.sourceLocation
+      val predName = "probe_" + loc.fileSymbol + "_l" + loc.line
+      // Ensure that we do not get name collisions by adding a suffix to the probe name if needed.
+      var predNameFinal = predName
+      var i = 1
+      while (probes.contains(predNameFinal)) {
+        predNameFinal = predName + "_" + i
+        i +=1
+      }
+      probes += predNameFinal
+      val proxy = factory()
+      proxy.setWeakName(predNameFinal)
+      proxy.setRefOwner(comp)
+      proxy.parentScope = stmt.parentScope
+      proxy.setLocation(loc)
+
+      val assign = DataAssignmentStatement(proxy, cond)
+      if (loc != null) {
+        assign.setLocation(loc)
+      }
+
+      stmt.insertNext(proxy)
+      proxy.insertNext(assign)
+      // Fixme: is it really better to replace the condition with the proxy? The proxy contains the same expression,
+      //  so it should resolve to the same value, even if the condition is not actually replaced.
+      proxy
+    }
+
     comp.dslBody.walkStatements(s => {
       s.walkRemapExpressions{
         case m: BinaryMultiplexer =>
@@ -161,65 +190,13 @@ class BuildPdgPhase extends PhaseMisc {
             // Fixme: this is the cleanest, not probe an already binary expression. The problem is that SigTrail will not detect this as a probe signal.
             //  this will be fixed in the future.
             case bool: Bool => bool
-            case cond =>
-              val loc = s.sourceLocation
-              val predName = "probe_" + loc.fileSymbol + "_l" + loc.line
-              // Ensure that we do not get name collisions by adding a suffix to the probe name if needed.
-              var predNameFinal = predName
-              var i = 1
-              while (probes.contains(predNameFinal)) {
-                predNameFinal = predName + "_" + i
-                i +=1
-              }
-              probes += predNameFinal
-              val proxy = Bool()
-              proxy.setWeakName(predNameFinal)
-              proxy.setRefOwner(comp)
-              proxy.parentScope = s.parentScope
-              proxy.setLocation(loc)
-
-              val assign = DataAssignmentStatement(proxy, m.cond)
-              if (loc != null) {
-                assign.setLocation(loc)
-              }
-
-              s.insertNext(proxy)
-              proxy.insertNext(assign)
-              // Fixme: is it really better to replace the condition with the proxy? The proxy contains the same expression,
-              //  so it should resolve to the same value, even if the condition is not actually replaced.
-              proxy
+            case cond => replaceExprWithProbe(cond, () => new Bool, s)
           }
           m
         case m: MultiplexerWidthable =>
           m.select = m.select match {
             case bt: BaseType => bt
-            case select =>
-              val loc = s.sourceLocation
-              val predName = "probe_" + loc.fileSymbol + "_l" + loc.line
-              // Ensure that we do not get name collisions by adding a suffix to the probe name if needed.
-              var predNameFinal = predName
-              var i = 1
-              while (probes.contains(predNameFinal)) {
-                predNameFinal = predName + "_" + i
-                i +=1
-              }
-              probes += predNameFinal
-              val proxy = Bits(m.getWidth bits)
-              proxy.setWeakName(predNameFinal)
-              proxy.setRefOwner(comp)
-              proxy.parentScope = s.parentScope
-              proxy.setLocation(loc)
-
-              val assign = DataAssignmentStatement(proxy, m.select)
-              if (loc != null) {
-                assign.setLocation(loc)
-              }
-
-              s.insertNext(proxy)
-              proxy.insertNext(assign)
-              // Fixme: is it really better to replace the condition with the proxy? The proxy contains the same expression,
-              //  so it should resolve to the same value, even if the condition is not actually replaced.
-              proxy
+            case select => replaceExprWithProbe(select, () => Bits(m.getWidth bits), s)
           }
           m
         case e => e
